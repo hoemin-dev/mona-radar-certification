@@ -1,0 +1,38 @@
+# Node / frontend
+node_modules/
+dist/
+dist-collector/
+
+# Collector runtime
+runtime/
+
+# Collector SQLite / local DB
+collector/data/*.sqlite
+collector/data/*.sqlite3
+collector/data/*.sqlite-shm
+collector/data/*.sqlite-wal
+collector/data/*.sqlite3-shm
+collector/data/*.sqlite3-wal
+
+# Environment / secrets
+.env
+.env.*
+!.env.example
+
+# Playwright
+playwright-report/
+test-results/
+
+# Rust / Tauri build outputs
+src-tauri/target/
+src-tauri/target-*/
+
+# Windows / temp
+*.lnk
+*.log
+*.tmp
+Thumbs.db
+
+# Codex / Cargo temporary build targets
+.codex-cargo-target/
+.cargo-target-check/

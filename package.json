@@ -1,0 +1,22 @@
+{
+  "name": "mona-radar-certification",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "collect:mvp": "node --experimental-strip-types collector/src/main.ts",
+    "collect:production": "node --experimental-strip-types collector/src/main.ts --production --page-unit=100",
+    "diagnose:last-page": "node --experimental-strip-types collector/src/diagnostic-last-page.ts",
+    "report:run": "node --experimental-strip-types collector/src/report.ts",
+    "profile:production": "node --experimental-strip-types collector/src/profile-production.ts",
+    "migrate:v1": "node --experimental-strip-types collector/src/migrate-v1.ts",
+    "collect:v2:test": "node --experimental-strip-types collector/src/main.ts --page-unit=100 --stop-after-page=3 --new-run",
+    "compare:snapshots": "node --experimental-strip-types tools/snapshot-comparison/compare.ts"
+  },
+  "dependencies": {
+    "playwright": "1.55.0"
+  },
+  "engines": {
+    "node": ">=24"
+  }
+}

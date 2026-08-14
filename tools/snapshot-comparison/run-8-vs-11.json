@@ -1,0 +1,686 @@
+{
+  "baselineRunId": 8,
+  "currentRunId": 11,
+  "generatedAt": "2026-08-14T08:00:13.315Z",
+  "profiles": {
+    "baseline": {
+      "run": {
+        "id": 8,
+        "source_mode": "production_v1",
+        "collector_schema_version": "v1",
+        "status": "completed",
+        "search_total": 51045,
+        "page_unit": 100,
+        "started_at": "2026-08-14T03:13:17.850Z",
+        "completed_at": "2026-08-14T03:26:53.995Z"
+      },
+      "totals": {
+        "total_rows": 51045,
+        "companies": 17444,
+        "certification_numbers": 35082,
+        "subjects": 30112,
+        "unlimited": 8109,
+        "unknown": 13,
+        "current_rows": 15219,
+        "historical_rows": 35813,
+        "subject_null": 1367,
+        "representative_null": 23023,
+        "address_null": 21536,
+        "start_date_null": 777,
+        "end_date_null": 10,
+        "fingerprint_null": 1367,
+        "unmapped_code": 0,
+        "raw_json_missing": 0
+      },
+      "typeCounts": [
+        {
+          "certification_type": "GS",
+          "count": 8395
+        },
+        {
+          "certification_type": "ICT융합품질인증",
+          "count": 190
+        },
+        {
+          "certification_type": "NEP",
+          "count": 733
+        },
+        {
+          "certification_type": "NET",
+          "count": 5316
+        },
+        {
+          "certification_type": "공공기관 개발선정품",
+          "count": 34
+        },
+        {
+          "certification_type": "구매조건부신기술개발",
+          "count": 4591
+        },
+        {
+          "certification_type": "기타혁신제품",
+          "count": 579
+        },
+        {
+          "certification_type": "녹색기술제품",
+          "count": 9032
+        },
+        {
+          "certification_type": "물산업우수제품 등 지정",
+          "count": 671
+        },
+        {
+          "certification_type": "민관공동투자기술개발",
+          "count": 351
+        },
+        {
+          "certification_type": "산업융합신제품적합성인증",
+          "count": 86
+        },
+        {
+          "certification_type": "산업융합품목",
+          "count": 955
+        },
+        {
+          "certification_type": "성과공유기술개발",
+          "count": 428
+        },
+        {
+          "certification_type": "성능인증",
+          "count": 5945
+        },
+        {
+          "certification_type": "우수산업디자인(GD)",
+          "count": 1637
+        },
+        {
+          "certification_type": "우수연구개발혁신제품",
+          "count": 1454
+        },
+        {
+          "certification_type": "우수조달공동상표",
+          "count": 1493
+        },
+        {
+          "certification_type": "우수조달물품",
+          "count": 7648
+        },
+        {
+          "certification_type": "재난안전제품인증",
+          "count": 137
+        },
+        {
+          "certification_type": "중소기업융복합기술개발",
+          "count": 476
+        },
+        {
+          "certification_type": "혁신시제품",
+          "count": 894
+        }
+      ],
+      "codeCounts": [
+        {
+          "source_certification_code": "01",
+          "count": 733
+        },
+        {
+          "source_certification_code": "02",
+          "count": 5316
+        },
+        {
+          "source_certification_code": "03",
+          "count": 8395
+        },
+        {
+          "source_certification_code": "04",
+          "count": 7648
+        },
+        {
+          "source_certification_code": "05",
+          "count": 5945
+        },
+        {
+          "source_certification_code": "07",
+          "count": 4591
+        },
+        {
+          "source_certification_code": "08",
+          "count": 9032
+        },
+        {
+          "source_certification_code": "09",
+          "count": 1493
+        },
+        {
+          "source_certification_code": "10",
+          "count": 351
+        },
+        {
+          "source_certification_code": "11",
+          "count": 955
+        },
+        {
+          "source_certification_code": "12",
+          "count": 428
+        },
+        {
+          "source_certification_code": "13",
+          "count": 190
+        },
+        {
+          "source_certification_code": "14",
+          "count": 476
+        },
+        {
+          "source_certification_code": "15",
+          "count": 86
+        },
+        {
+          "source_certification_code": "16",
+          "count": 1637
+        },
+        {
+          "source_certification_code": "27",
+          "count": 34
+        },
+        {
+          "source_certification_code": "28",
+          "count": 1454
+        },
+        {
+          "source_certification_code": "29",
+          "count": 671
+        },
+        {
+          "source_certification_code": "30",
+          "count": 894
+        },
+        {
+          "source_certification_code": "31",
+          "count": 579
+        },
+        {
+          "source_certification_code": "32",
+          "count": 137
+        }
+      ]
+    },
+    "current": {
+      "run": {
+        "id": 11,
+        "source_mode": "production_v2",
+        "collector_schema_version": "v2",
+        "status": "completed",
+        "search_total": 51045,
+        "page_unit": 100,
+        "started_at": "2026-08-14T07:25:21.656Z",
+        "completed_at": "2026-08-14T07:59:40.424Z"
+      },
+      "totals": {
+        "total_rows": 51045,
+        "companies": 17444,
+        "certification_numbers": 35082,
+        "subjects": 30112,
+        "unlimited": 8109,
+        "unknown": 13,
+        "current_rows": 15221,
+        "historical_rows": 35811,
+        "subject_null": 1367,
+        "representative_null": 23023,
+        "address_null": 21536,
+        "start_date_null": 777,
+        "end_date_null": 10,
+        "fingerprint_null": 1367,
+        "unmapped_code": 0,
+        "raw_json_missing": 0
+      },
+      "typeCounts": [
+        {
+          "certification_type": "GS",
+          "count": 8395
+        },
+        {
+          "certification_type": "ICT융합품질인증",
+          "count": 190
+        },
+        {
+          "certification_type": "NEP",
+          "count": 733
+        },
+        {
+          "certification_type": "NET",
+          "count": 5316
+        },
+        {
+          "certification_type": "공공기관 개발선정품",
+          "count": 34
+        },
+        {
+          "certification_type": "구매조건부신기술개발",
+          "count": 4591
+        },
+        {
+          "certification_type": "기타혁신제품",
+          "count": 579
+        },
+        {
+          "certification_type": "녹색기술제품",
+          "count": 9032
+        },
+        {
+          "certification_type": "물산업우수제품 등 지정",
+          "count": 671
+        },
+        {
+          "certification_type": "민관공동투자기술개발",
+          "count": 351
+        },
+        {
+          "certification_type": "산업융합신제품적합성인증",
+          "count": 86
+        },
+        {
+          "certification_type": "산업융합품목",
+          "count": 955
+        },
+        {
+          "certification_type": "성과공유기술개발",
+          "count": 428
+        },
+        {
+          "certification_type": "성능인증",
+          "count": 5945
+        },
+        {
+          "certification_type": "우수산업디자인(GD)",
+          "count": 1637
+        },
+        {
+          "certification_type": "우수연구개발혁신제품",
+          "count": 1454
+        },
+        {
+          "certification_type": "우수조달공동상표",
+          "count": 1493
+        },
+        {
+          "certification_type": "우수조달물품",
+          "count": 7648
+        },
+        {
+          "certification_type": "재난안전제품인증",
+          "count": 137
+        },
+        {
+          "certification_type": "중소기업융복합기술개발",
+          "count": 476
+        },
+        {
+          "certification_type": "혁신시제품",
+          "count": 894
+        }
+      ],
+      "codeCounts": [
+        {
+          "source_certification_code": "01",
+          "count": 733
+        },
+        {
+          "source_certification_code": "02",
+          "count": 5316
+        },
+        {
+          "source_certification_code": "03",
+          "count": 8395
+        },
+        {
+          "source_certification_code": "04",
+          "count": 7648
+        },
+        {
+          "source_certification_code": "05",
+          "count": 5945
+        },
+        {
+          "source_certification_code": "07",
+          "count": 4591
+        },
+        {
+          "source_certification_code": "08",
+          "count": 9032
+        },
+        {
+          "source_certification_code": "09",
+          "count": 1493
+        },
+        {
+          "source_certification_code": "10",
+          "count": 351
+        },
+        {
+          "source_certification_code": "11",
+          "count": 955
+        },
+        {
+          "source_certification_code": "12",
+          "count": 428
+        },
+        {
+          "source_certification_code": "13",
+          "count": 190
+        },
+        {
+          "source_certification_code": "14",
+          "count": 476
+        },
+        {
+          "source_certification_code": "15",
+          "count": 86
+        },
+        {
+          "source_certification_code": "16",
+          "count": 1637
+        },
+        {
+          "source_certification_code": "27",
+          "count": 34
+        },
+        {
+          "source_certification_code": "28",
+          "count": 1454
+        },
+        {
+          "source_certification_code": "29",
+          "count": 671
+        },
+        {
+          "source_certification_code": "30",
+          "count": 894
+        },
+        {
+          "source_certification_code": "31",
+          "count": 579
+        },
+        {
+          "source_certification_code": "32",
+          "count": 137
+        }
+      ]
+    }
+  },
+  "exactVisibleMultiset": {
+    "baseline_signature_groups": 42759,
+    "current_signature_groups": 42759,
+    "unchanged_occurrences": 51043,
+    "added_occurrences": 2,
+    "removed_occurrences": 2,
+    "count_changed_signature_groups": 0,
+    "samples": [
+      {
+        "signature": [
+          "성능인증",
+          "23-AAD0277\n표면세척기",
+          "주식회사 가온텍",
+          "밸러스트 챔버 및 헹굼 세척 장치를 갖는 티핑버킷",
+          "2023-08-11",
+          "\n\t\t\t\t\t\t\t\t 2026-08-10\n\t\t\t\t\t\t\t\t\n\t\t\t\t\t\t\t"
+        ],
+        "baseline_count": 1,
+        "current_count": 0
+      },
+      {
+        "signature": [
+          "성능인증",
+          "24-BAD0103\n제진기",
+          "(주)나성이엔지",
+          "인양체인 끼임 방지판을 구비한 로타리식 제진기",
+          "2023-06-20",
+          "\n\t\t\t\t\t\t\t\t 2026-06-19\n\t\t\t\t\t\t\t\t\n\t\t\t\t\t\t\t"
+        ],
+        "baseline_count": 1,
+        "current_count": 0
+      },
+      {
+        "signature": [
+          "성능인증",
+          "26-CAD0219\n표면세척기",
+          "주식회사 가온텍",
+          "밸러스트 챔버 및 헹굼 세척 장치를 갖는 티핑버킷",
+          "2026-08-11",
+          "\n\t\t\t\t\t\t\t\t 2030-08-10\n\t\t\t\t\t\t\t\t\n\t\t\t\t\t\t\t"
+        ],
+        "baseline_count": 0,
+        "current_count": 1
+      },
+      {
+        "signature": [
+          "성능인증",
+          "26-CAD0220\n제진기",
+          "(주)나성이엔지",
+          "인양체인 끼임 방지판을 구비한 로타리식 제진기",
+          "2026-06-20",
+          "\n\t\t\t\t\t\t\t\t 2030-06-19\n\t\t\t\t\t\t\t\t\n\t\t\t\t\t\t\t"
+        ],
+        "baseline_count": 0,
+        "current_count": 1
+      }
+    ]
+  },
+  "candidateComparison": {
+    "unchanged_candidate_count": 39242,
+    "added_candidate_count": 2,
+    "removed_candidate_count": 2,
+    "changed_like_candidate_count": 0,
+    "ambiguous_multiplicity_candidate_count": 5390,
+    "occurrence_count_changed_candidate_count": 0,
+    "period_changed_candidate_count": 0,
+    "subject_changed_candidate_count": 0,
+    "no_candidate_fingerprint": {
+      "baseline": 1367,
+      "current": 1367
+    },
+    "samples": {
+      "added": [
+        {
+          "fingerprint": "712f99f143e40f90b8fd1d018474b5ecc2438cf0cae2c6186fb41766ee671bf3",
+          "baseline": null,
+          "current": {
+            "count": 1,
+            "periods": [
+              "[\"2026-06-20\",\"\\n\\t\\t\\t\\t\\t\\t\\t\\t 2030-06-19\\n\\t\\t\\t\\t\\t\\t\\t\\t\\n\\t\\t\\t\\t\\t\\t\\t\"]"
+            ]
+          }
+        },
+        {
+          "fingerprint": "fd9ae010f528542bdfba84b486b558e85b889348571c752e442630e414f93bf7",
+          "baseline": null,
+          "current": {
+            "count": 1,
+            "periods": [
+              "[\"2026-08-11\",\"\\n\\t\\t\\t\\t\\t\\t\\t\\t 2030-08-10\\n\\t\\t\\t\\t\\t\\t\\t\\t\\n\\t\\t\\t\\t\\t\\t\\t\"]"
+            ]
+          }
+        }
+      ],
+      "removed": [
+        {
+          "fingerprint": "4ad12d03d649ab6dab6cab9cbbb2872847f0c431a8e78c7bcec1bfd473f74fb3",
+          "baseline": {
+            "count": 1,
+            "periods": [
+              "[\"2023-08-11\",\"\\n\\t\\t\\t\\t\\t\\t\\t\\t 2026-08-10\\n\\t\\t\\t\\t\\t\\t\\t\\t\\n\\t\\t\\t\\t\\t\\t\\t\"]"
+            ]
+          },
+          "current": null
+        },
+        {
+          "fingerprint": "750dfd906fb2be5e09f2cd8de916299fe323640f2a8b37f78a46a391261ef18d",
+          "baseline": {
+            "count": 1,
+            "periods": [
+              "[\"2023-06-20\",\"\\n\\t\\t\\t\\t\\t\\t\\t\\t 2026-06-19\\n\\t\\t\\t\\t\\t\\t\\t\\t\\n\\t\\t\\t\\t\\t\\t\\t\"]"
+            ]
+          },
+          "current": null
+        }
+      ],
+      "changed_like": [],
+      "ambiguous_multiplicity": [
+        {
+          "fingerprint": "000b60e04e5996c6d1f9b13aae2c8b49c0cb664eb5fbce28ba9d573c6650040b",
+          "baseline": {
+            "count": 2,
+            "periods": [
+              "[\"2021-04-15\",\"\\n\\t\\t\\t\\t\\t\\t\\t\\t 2023-09-02\\n\\t\\t\\t\\t\\t\\t\\t\\t\\n\\t\\t\\t\\t\\t\\t\\t\"]"
+            ]
+          },
+          "current": {
+            "count": 2,
+            "periods": [
+              "[\"2021-04-15\",\"\\n\\t\\t\\t\\t\\t\\t\\t\\t 2023-09-02\\n\\t\\t\\t\\t\\t\\t\\t\\t\\n\\t\\t\\t\\t\\t\\t\\t\"]"
+            ]
+          }
+        },
+        {
+          "fingerprint": "000dbd829794b86394c087e50d2ab8e7b09f2f1540980d52cdf29b53e5f65cc4",
+          "baseline": {
+            "count": 3,
+            "periods": [
+              "[\"2021-01-28\",\"\\n\\t\\t\\t\\t\\t\\t\\t\\t 2023-11-18\\n\\t\\t\\t\\t\\t\\t\\t\\t\\n\\t\\t\\t\\t\\t\\t\\t\"]"
+            ]
+          },
+          "current": {
+            "count": 3,
+            "periods": [
+              "[\"2021-01-28\",\"\\n\\t\\t\\t\\t\\t\\t\\t\\t 2023-11-18\\n\\t\\t\\t\\t\\t\\t\\t\\t\\n\\t\\t\\t\\t\\t\\t\\t\"]"
+            ]
+          }
+        },
+        {
+          "fingerprint": "0043812aefab8fe2bec44fb570dcb862d2a4be68ee185da47c7ecd82220fc05f",
+          "baseline": {
+            "count": 2,
+            "periods": [
+              "[\"2020-05-21\",\"\\n\\t\\t\\t\\t\\t\\t\\t\\t 2022-05-15\\n\\t\\t\\t\\t\\t\\t\\t\\t\\n\\t\\t\\t\\t\\t\\t\\t\"]"
+            ]
+          },
+          "current": {
+            "count": 2,
+            "periods": [
+              "[\"2020-05-21\",\"\\n\\t\\t\\t\\t\\t\\t\\t\\t 2022-05-15\\n\\t\\t\\t\\t\\t\\t\\t\\t\\n\\t\\t\\t\\t\\t\\t\\t\"]"
+            ]
+          }
+        },
+        {
+          "fingerprint": "0047f07982db6a8aec3c76bf8365dab38131638fd11ccfdb45778b65ec21716f",
+          "baseline": {
+            "count": 2,
+            "periods": [
+              "[\"2024-04-25\",\"\\n\\t\\t\\t\\t\\t\\t\\t\\t 2027-05-19\\n\\t\\t\\t\\t\\t\\t\\t\\t\\n\\t\\t\\t\\t\\t\\t\\t\"]"
+            ]
+          },
+          "current": {
+            "count": 2,
+            "periods": [
+              "[\"2024-04-25\",\"\\n\\t\\t\\t\\t\\t\\t\\t\\t 2027-05-19\\n\\t\\t\\t\\t\\t\\t\\t\\t\\n\\t\\t\\t\\t\\t\\t\\t\"]"
+            ]
+          }
+        },
+        {
+          "fingerprint": "006d244efd4befed6bbc59660050a6ed950c1489d9d687b5e9dfb9ee7d8ed560",
+          "baseline": {
+            "count": 3,
+            "periods": [
+              "[\"2020-06-18\",\"\\n\\t\\t\\t\\t\\t\\t\\t\\t 2024-04-18\\n\\t\\t\\t\\t\\t\\t\\t\\t\\n\\t\\t\\t\\t\\t\\t\\t\"]"
+            ]
+          },
+          "current": {
+            "count": 3,
+            "periods": [
+              "[\"2020-06-18\",\"\\n\\t\\t\\t\\t\\t\\t\\t\\t 2024-04-18\\n\\t\\t\\t\\t\\t\\t\\t\\t\\n\\t\\t\\t\\t\\t\\t\\t\"]"
+            ]
+          }
+        },
+        {
+          "fingerprint": "008d26808ba030416b55c0c93e2fc0a8b64aa921faab9ad56e69da1bbbd4f752",
+          "baseline": {
+            "count": 3,
+            "periods": [
+              "[\"2021-10-14\",\"\\n\\t\\t\\t\\t\\t\\t\\t\\t 2024-07-11\\n\\t\\t\\t\\t\\t\\t\\t\\t\\n\\t\\t\\t\\t\\t\\t\\t\"]"
+            ]
+          },
+          "current": {
+            "count": 3,
+            "periods": [
+              "[\"2021-10-14\",\"\\n\\t\\t\\t\\t\\t\\t\\t\\t 2024-07-11\\n\\t\\t\\t\\t\\t\\t\\t\\t\\n\\t\\t\\t\\t\\t\\t\\t\"]"
+            ]
+          }
+        },
+        {
+          "fingerprint": "0090e278be8086c6391a2d7444f5b625e5bb6e4b2fa83f7d2497b1917c49cea9",
+          "baseline": {
+            "count": 2,
+            "periods": [
+              "[\"2023-09-14\",\"\\n\\t\\t\\t\\t\\t\\t\\t\\t 2026-03-15\\n\\t\\t\\t\\t\\t\\t\\t\\t\\n\\t\\t\\t\\t\\t\\t\\t\"]"
+            ]
+          },
+          "current": {
+            "count": 2,
+            "periods": [
+              "[\"2023-09-14\",\"\\n\\t\\t\\t\\t\\t\\t\\t\\t 2026-03-15\\n\\t\\t\\t\\t\\t\\t\\t\\t\\n\\t\\t\\t\\t\\t\\t\\t\"]"
+            ]
+          }
+        },
+        {
+          "fingerprint": "0092b481d8927b6d4f730ff075d88f8d39884068e88096223ccf8e86ca113d9a",
+          "baseline": {
+            "count": 3,
+            "periods": [
+              "[\"2022-04-14\",\"\\n\\t\\t\\t\\t\\t\\t\\t\\t 2025-04-13\\n\\t\\t\\t\\t\\t\\t\\t\\t\\n\\t\\t\\t\\t\\t\\t\\t\"]"
+            ]
+          },
+          "current": {
+            "count": 3,
+            "periods": [
+              "[\"2022-04-14\",\"\\n\\t\\t\\t\\t\\t\\t\\t\\t 2025-04-13\\n\\t\\t\\t\\t\\t\\t\\t\\t\\n\\t\\t\\t\\t\\t\\t\\t\"]"
+            ]
+          }
+        },
+        {
+          "fingerprint": "00949e21f2d5d75a3f1aeeef63bb2fa39c655cc23df661aa1194f71a0ae1df02",
+          "baseline": {
+            "count": 3,
+            "periods": [
+              "[\"2020-09-03\",\"\\n\\t\\t\\t\\t\\t\\t\\t\\t 2023-09-02\\n\\t\\t\\t\\t\\t\\t\\t\\t\\n\\t\\t\\t\\t\\t\\t\\t\"]"
+            ]
+          },
+          "current": {
+            "count": 3,
+            "periods": [
+              "[\"2020-09-03\",\"\\n\\t\\t\\t\\t\\t\\t\\t\\t 2023-09-02\\n\\t\\t\\t\\t\\t\\t\\t\\t\\n\\t\\t\\t\\t\\t\\t\\t\"]"
+            ]
+          }
+        },
+        {
+          "fingerprint": "00a70e2795620dd33e40f8d7b027418ec381f4ad74deff3792d55547eea0c8ba",
+          "baseline": {
+            "count": 2,
+            "periods": [
+              "[\"2019-03-20\",\"\\n\\t\\t\\t\\t\\t\\t\\t\\t 2022-03-19\\n\\t\\t\\t\\t\\t\\t\\t\\t\\n\\t\\t\\t\\t\\t\\t\\t\"]"
+            ]
+          },
+          "current": {
+            "count": 2,
+            "periods": [
+              "[\"2019-03-20\",\"\\n\\t\\t\\t\\t\\t\\t\\t\\t 2022-03-19\\n\\t\\t\\t\\t\\t\\t\\t\\t\\n\\t\\t\\t\\t\\t\\t\\t\"]"
+            ]
+          }
+        }
+      ],
+      "occurrence_count_changed": [],
+      "period_changed": [],
+      "subject_changed": []
+    }
+  },
+  "interpretation": "Observation-only comparison. No entity, renewal, dedupe, company, or detailed-item decision is created from these categories."
+}
