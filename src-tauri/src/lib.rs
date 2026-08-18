@@ -63,13 +63,16 @@ fn project_root() -> PathBuf {
 }
 
 fn db_path() -> Result<PathBuf, String> {
-    if let Ok(path) = env::var("MONA_CERTIFICATION_DB") {
-        return Ok(PathBuf::from(path));
-    }
-    let path = project_root().join("collector/data/mona-radar-certification.sqlite");
+    let local_app_data = env::var_os("LOCALAPPDATA")
+        .ok_or_else(|| "LOCALAPPDATA is not set".to_string())?;
+    let data_dir = PathBuf::from(local_app_data)
+        .join("com.monaradar.certification")
+        .join("data");
+    fs::create_dir_all(&data_dir).map_err(|e| e.to_string())?;
+    let path = data_dir.join("mona-radar-certification.sqlite");
     if !path.is_file() {
         return Err(format!(
-            "SQLite database not found at {}. Run the collector first or set MONA_CERTIFICATION_DB.",
+            "SQLite database not found at {}. Run the collector first.",
             path.display()
         ));
     }

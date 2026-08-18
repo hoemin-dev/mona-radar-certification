@@ -1,4 +1,10 @@
-import { resolve } from "node:path";
+import { mkdirSync } from "node:fs";
+import { join } from "node:path";
+
+const localAppData = process.env.LOCALAPPDATA;
+if (!localAppData) throw new Error("LOCALAPPDATA is not set");
+const dataDir = join(localAppData, "com.monaradar.certification", "data");
+mkdirSync(dataDir, { recursive: true });
 
 const pageUnitArg = process.argv.find((arg) => arg.startsWith("--page-unit="))?.split("=", 2)[1];
 const pageUnit = Number(pageUnitArg ?? "100");
@@ -7,7 +13,7 @@ const production = process.argv.includes("--production");
 
 export const config = {
   sourceUrl: "https://www.smpp.go.kr/prd/prdinfo/tdprd/SelectTdPrdListVw.do",
-  dbPath: resolve("collector/data/mona-radar-certification.sqlite"),
+  dbPath: join(dataDir, "mona-radar-certification.sqlite"),
   navigationTimeoutMs: 90_000,
   sourcePageNo: 1,
   pageUnit,
