@@ -1,0 +1,580 @@
+import "./styles.css";
+import "./search.css";
+import { invoke } from "@tauri-apps/api/core";
+import { listen } from "@tauri-apps/api/event";
+import { getCurrentWindow } from "@tauri-apps/api/window";
+
+type View = "search" | "dash" | "analysis" | "collector";
+
+interface CertificationRow {
+  id: number;
+  certificationType: string;
+  certificationNo?: string;
+  companyName: string;
+  certificationSubjectName?: string;
+  certificationStartDate?: string;
+  certificationEndDate?: string;
+  isUnlimited: boolean;
+  statusClass: string;
+  statusUnknown: boolean;
+}
+
+interface SearchResponse {
+  rows: CertificationRow[];
+  total: number;
+  page: number;
+  totalPages: number;
+  runId: number;
+}
+
+interface FilterOptions {
+  certificationTypes: string[];
+}
+
+interface DbInfo {
+  path: string;
+  runId: number;
+  runStatus: string;
+  occurrenceCount: number;
+}
+
+interface DbBackup {
+  name: string;
+  path: string;
+}
+
+interface CollectorStatus {
+  processRunning: boolean;
+  runId?: number;
+  runStatus?: string;
+  currentPage: number;
+  totalPages: number;
+  rowsInserted: number;
+  resumed: boolean;
+  searchTotal?: number;
+  pageUnit?: number;
+  sourceMode?: string;
+  errorSummary?: string;
+}
+
+const app = document.querySelector<HTMLDivElement>("#app")!;
+let view: View = "search";
+let dbInfo: DbInfo | undefined;
+let dbError = "";
+let filterOptions: FilterOptions = { certificationTypes: [] };
+
+let companyName = "";
+let certificationNo = "";
+let certificationType = "";
+let certificationSubjectName = "";
+let statusFilter = "";
+let searchData: SearchResponse = { rows: [], total: 0, page: 1, totalPages: 1, runId: 0 };
+let searchError = "";
+let searchTimer: number | undefined;
+
+let collectorStatus: CollectorStatus = {
+  processRunning: false,
+  currentPage: 0,
+  totalPages: 0,
+  rowsInserted: 0,
+  resumed: false,
+};
+let collectorLogs: string[] = [];
+let dbBackups: DbBackup[] = [];
+let selectedBackupName = "";
+let statusPollTimer: number | undefined;
+
+const escapeHtml = (value: unknown) =>
+  String(value ?? "").replace(/[&<>"']/g, (char) =>
+    ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[char]!,
+  );
+
+const tabIcon = (item: View) =>
+  item === "search" ? "⌕" : item === "dash" ? "▦" : item === "analysis" ? "◇" : "↯";
+
+const statusLabel = (row: CertificationRow) => {
+  if (row.isUnlimited) return { text: "무기한", className: "unlimited" };
+  if (row.statusUnknown || row.statusClass === "unknown") return { text: "알 수 없음", className: "unknown" };
+  if (row.statusClass === "historical") return { text: "과거", className: "historical" };
+  return { text: "현재", className: "current" };
+};
+
+const endDateLabel = (row: CertificationRow) =>
+  row.isUnlimited ? "무기한" : escapeHtml(row.certificationEndDate ?? "—");
+
+function setupWindowChrome() {
+  if (!("__TAURI_INTERNALS__" in window)) return;
+  const appWindow = getCurrentWindow();
+  const titlebar = document.querySelector<HTMLElement>("#window-titlebar");
+  const minimize = document.querySelector<HTMLButtonElement>("#window-minimize");
+  const maximize = document.querySelector<HTMLButtonElement>("#window-maximize");
+  const maximizeIcon = document.querySelector<HTMLElement>("#window-maximize-icon");
+  const close = document.querySelector<HTMLButtonElement>("#window-close");
+  if (!titlebar || !minimize || !maximize || !maximizeIcon || !close) return;
+
+  const updateMaximizeState = async () => {
+    const isMaximized = await appWindow.isMaximized();
+    maximizeIcon.classList.toggle("is-restore", isMaximized);
+    maximize.ariaLabel = isMaximized ? "복원" : "최대화";
+  };
+  minimize.addEventListener("click", () => void appWindow.minimize());
+  maximize.addEventListener("click", () => void appWindow.toggleMaximize().then(updateMaximizeState));
+  close.addEventListener("click", () => void appWindow.close());
+  titlebar.addEventListener("dblclick", (event) => {
+    if ((event.target as HTMLElement).closest(".window-controls")) return;
+    void appWindow.toggleMaximize().then(updateMaximizeState);
+  });
+  void updateMaximizeState();
+  void appWindow.onResized(() => void updateMaximizeState());
+}
+
+const nav = () => `
+  <aside>
+    <div class="brand">
+      <span>MR</span>
+      <div><b>MONA RADAR</b><small>Certification</small></div>
+    </div>
+    <nav>
+      ${(["search", "dash", "analysis", "collector"] as View[])
+        .map(
+          (item) => `
+        <button data-view="${item}" class="${view === item ? "active" : ""}" type="button">
+          <i>${tabIcon(item)}</i>${item[0]!.toUpperCase() + item.slice(1)}
+        </button>`,
+        )
+        .join("")}
+    </nav>
+    <footer>LOCAL SQLITE<br><span>snapshot occurrences</span></footer>
+  </aside>`;
+
+const placeholder = (name: string) => `
+  <section class="page centered">
+    <p class="eyebrow">COMING SOON</p>
+    <div class="orb"></div>
+    <h3>${escapeHtml(name)}</h3>
+    <p>v0.1에서는 Search와 Collector를 우선 제공합니다.</p>
+  </section>`;
+
+const dbBanner = () => {
+  if (dbError) {
+    return `<div class="db-banner error"><strong>DB 연결 실패</strong> — ${escapeHtml(dbError)}</div>`;
+  }
+  if (!dbInfo) return "";
+  return `<div class="db-banner">
+    <strong>Run #${dbInfo.runId}</strong> · ${escapeHtml(dbInfo.runStatus)} ·
+    ${dbInfo.occurrenceCount.toLocaleString()}건 ·
+    <span class="muted">${escapeHtml(dbInfo.path)}</span>
+  </div>`;
+};
+
+const pagination = () => {
+  if (searchData.totalPages <= 1) return "";
+  const start = Math.max(1, searchData.page - 2);
+  const end = Math.min(searchData.totalPages, start + 4);
+  const pages = Array.from({ length: end - start + 1 }, (_, index) => start + index);
+  return `<nav class="pagination-controls">
+    <button data-page="${searchData.page - 1}" ${searchData.page <= 1 ? "disabled" : ""}>이전</button>
+    ${pages
+      .map(
+        (page) =>
+          `<button data-page="${page}" class="${page === searchData.page ? "active" : ""}">${page}</button>`,
+      )
+      .join("")}
+    <button data-page="${searchData.page + 1}" ${searchData.page >= searchData.totalPages ? "disabled" : ""}>다음</button>
+  </nav>`;
+};
+
+const searchPage = () => `
+  <section class="page">
+    <header>
+      <p class="eyebrow">CERTIFICATION SNAPSHOT</p>
+      <h2>Search</h2>
+      <p>최근 정상 완료된 Production run의 <code>certification_snapshot_occurrences</code>를 조회합니다.</p>
+    </header>
+    ${dbBanner()}
+    <div class="search-panel">
+      <div class="search-grid">
+        <label>업체명<input id="filter-company" value="${escapeHtml(companyName)}" autocomplete="off" placeholder="업체명 검색"></label>
+        <label>인증번호<input id="filter-cert-no" value="${escapeHtml(certificationNo)}" autocomplete="off" placeholder="인증번호"></label>
+        <label>인증유형
+          <select id="filter-cert-type">
+            <option value="">전체</option>
+            ${filterOptions.certificationTypes
+              .map(
+                (type) =>
+                  `<option value="${escapeHtml(type)}" ${certificationType === type ? "selected" : ""}>${escapeHtml(type)}</option>`,
+              )
+              .join("")}
+          </select>
+        </label>
+        <label>인증대상명<input id="filter-subject" value="${escapeHtml(certificationSubjectName)}" autocomplete="off" placeholder="인증대상명"></label>
+        <label>상태
+          <select id="filter-status">
+            <option value="">전체</option>
+            <option value="current" ${statusFilter === "current" ? "selected" : ""}>현재</option>
+            <option value="historical" ${statusFilter === "historical" ? "selected" : ""}>과거</option>
+            <option value="unlimited" ${statusFilter === "unlimited" ? "selected" : ""}>무기한</option>
+            <option value="unknown" ${statusFilter === "unknown" ? "selected" : ""}>알 수 없음</option>
+          </select>
+        </label>
+      </div>
+      <div class="search-actions">
+        <button class="primary" data-action="search" type="button">검색</button>
+        <button data-action="reset_search" type="button">초기화</button>
+        <span class="search-meta">${searchData.total.toLocaleString()}건 · Run #${searchData.runId || "—"}</span>
+      </div>
+    </div>
+    ${
+      searchError
+        ? `<div class="db-banner error">${escapeHtml(searchError)}</div>`
+        : searchData.rows.length
+          ? `<div class="results-table">
+              <div class="results-head">
+                <span>인증유형</span><span>인증번호</span><span>업체명</span><span>인증대상명</span>
+                <span>시작일</span><span>종료일</span><span>상태</span>
+              </div>
+              ${searchData.rows
+                .map((row) => {
+                  const status = statusLabel(row);
+                  return `<div class="results-row">
+                    <span>${escapeHtml(row.certificationType)}</span>
+                    <span>${escapeHtml(row.certificationNo ?? "—")}</span>
+                    <span>${escapeHtml(row.companyName)}</span>
+                    <span>${escapeHtml(row.certificationSubjectName ?? "—")}</span>
+                    <span>${escapeHtml(row.certificationStartDate ?? "—")}</span>
+                    <span>${endDateLabel(row)}</span>
+                    <span><span class="status-pill ${status.className}">${status.text}</span></span>
+                  </div>`;
+                })
+                .join("")}
+            </div>${pagination()}`
+          : `<div class="empty-card"><p>${dbError ? "DB를 연결한 뒤 검색하세요." : "검색 결과가 없습니다."}</p></div>`
+    }
+  </section>`;
+
+const collectorPage = () => `
+  <section class="page">
+    <header>
+      <p class="eyebrow">SMPP COLLECTOR V2</p>
+      <h2>Collector</h2>
+      <p>검증된 Collector v2를 앱에서 실행하고 상태를 확인합니다. 기존 checkpoint/resume 구조를 그대로 사용합니다.</p>
+    </header>
+    <div class="guide"><b>안내</b><span>Start = 새 Production run</span><span>Pause/Resume = checkpoint 유지</span><span>Stop = 현재 run 종료</span></div>
+    <div class="status-grid">
+      <article><span>프로세스</span><strong class="${collectorStatus.processRunning ? "good" : ""}">${collectorStatus.processRunning ? "실행 중" : "중지됨"}</strong><small>Node collector subprocess</small></article>
+      <article><span>Run 상태</span><strong>${escapeHtml(collectorStatus.runStatus ?? "—")}</strong><small>Run #${escapeHtml(collectorStatus.runId ?? "—")}</small></article>
+      <article><span>페이지</span><strong>${collectorStatus.currentPage} / ${collectorStatus.totalPages || "—"}</strong><small>${collectorStatus.searchTotal ? `총 ${collectorStatus.searchTotal.toLocaleString()}건` : "search total 대기"}</small></article>
+      <article><span>수집 건수</span><strong>${collectorStatus.rowsInserted.toLocaleString()}</strong><small>Resume: <span class="${collectorStatus.resumed ? "warn" : "muted"}">${collectorStatus.resumed ? "예" : "아니오"}</span></small></article>
+    </div>
+    <div class="workspace">
+      <div class="actions">
+        <button class="primary" data-action="start_collector" type="button" ${collectorStatus.processRunning ? "disabled" : ""}>Start</button>
+        <button data-action="pause_collector" type="button" ${collectorStatus.processRunning ? "" : "disabled"}>Pause</button>
+        ${collectorStatus.runStatus === 'interrupted' ? `<button data-action="resume_collector" type="button" ${collectorStatus.processRunning ? "disabled" : ""}>Resume</button>` : ""}
+        <button data-action="stop_collector" type="button" ${collectorStatus.processRunning ? "" : "disabled"}>Stop</button>
+        <button data-action="refresh_collector" type="button">DB 다시 읽기</button>
+      </div>
+      <div class="actions" style="margin-top:12px">
+        <button data-action="backup_db" type="button">DB 백업</button>
+        <select id="backup-select" aria-label="백업 목록" style="min-width:220px">
+          <option value="">백업 선택</option>
+          ${dbBackups.map((backup) => `<option value="${escapeHtml(backup.name)}" ${selectedBackupName === backup.name ? "selected" : ""}>${escapeHtml(backup.name)}</option>`).join("")}
+        </select>
+        <button data-action="restore_db" type="button" ${dbBackups.length ? "" : "disabled"}>복원</button>
+      </div>
+      ${collectorStatus.errorSummary ? `<p class="error" style="margin-top:16px">${escapeHtml(collectorStatus.errorSummary)}</p>` : ""}
+      ${collectorStatus.sourceMode ? `<p class="muted" style="margin-top:8px">source_mode: ${escapeHtml(collectorStatus.sourceMode)}</p>` : ""}
+    </div>
+    <div class="log">
+      <div class="log-head">
+        <h3>최근 로그</h3>
+        <div><span>${collectorLogs.length} lines</span><button type="button" data-action="copy_logs" ${collectorLogs.length ? "" : "disabled"}>전체 복사</button></div>
+      </div>
+      ${
+        collectorLogs.length
+          ? collectorLogs
+              .slice(-40)
+              .reverse()
+              .map((line) => `<div class="event-row">${escapeHtml(line)}</div>`)
+              .join("")
+          : '<div class="empty">Start를 눌러 수집을 시작하세요.</div>'
+      }
+    </div>
+  </section>`;
+
+const shell = (body: string) => `${nav()}<main>${body}</main>`;
+
+function render() {
+  const body =
+    view === "search"
+      ? searchPage()
+      : view === "collector"
+        ? collectorPage()
+        : placeholder(view === "dash" ? "Dashboard" : "Analysis");
+  app.innerHTML = shell(body);
+  bind();
+}
+
+function readSearchFiltersFromDom() {
+  companyName = document.querySelector<HTMLInputElement>("#filter-company")?.value ?? companyName;
+  certificationNo = document.querySelector<HTMLInputElement>("#filter-cert-no")?.value ?? certificationNo;
+  certificationType = document.querySelector<HTMLSelectElement>("#filter-cert-type")?.value ?? certificationType;
+  certificationSubjectName = document.querySelector<HTMLInputElement>("#filter-subject")?.value ?? certificationSubjectName;
+  statusFilter = document.querySelector<HTMLSelectElement>("#filter-status")?.value ?? statusFilter;
+}
+
+function readCollectorOptionsFromDom() {
+  selectedBackupName = document.querySelector<HTMLSelectElement>("#backup-select")?.value ?? selectedBackupName;
+}
+
+async function loadDbBackups() {
+  try {
+    dbBackups = await invoke<DbBackup[]>("database_backups");
+    if (selectedBackupName && !dbBackups.some((backup) => backup.name === selectedBackupName)) {
+      selectedBackupName = "";
+    }
+  } catch {
+    dbBackups = [];
+  }
+}
+
+async function loadDbInfo() {
+  try {
+    dbInfo = await invoke<DbInfo>("database_info");
+    dbError = "";
+  } catch (error) {
+    dbInfo = undefined;
+    dbError = String(error);
+  }
+}
+
+async function loadFilterOptions() {
+  try {
+    filterOptions = await invoke<FilterOptions>("filter_options");
+  } catch {
+    filterOptions = { certificationTypes: [] };
+  }
+}
+
+async function loadSearch(page = 1) {
+  readSearchFiltersFromDom();
+  searchError = "";
+  try {
+    searchData = await invoke<SearchResponse>("search_certifications", {
+      filters: {
+        companyName: companyName || null,
+        certificationNo: certificationNo || null,
+        certificationType: certificationType || null,
+        certificationSubjectName: certificationSubjectName || null,
+        status: statusFilter || null,
+        page,
+      },
+    });
+  } catch (error) {
+    searchError = String(error);
+    searchData = { rows: [], total: 0, page: 1, totalPages: 1, runId: 0 };
+  }
+  render();
+}
+
+async function refreshCollectorStatus() {
+  try {
+    collectorStatus = await invoke<CollectorStatus>("collector_status");
+  } catch (error) {
+    collectorLogs.push(`[status] ${String(error)}`);
+  }
+  if (view === "collector") render();
+}
+
+async function copyLogs() {
+  const text = collectorLogs.join("\r\n");
+  if (!text) return;
+  try {
+    await navigator.clipboard.writeText(text);
+  } catch {
+    const area = document.createElement("textarea");
+    area.value = text;
+    area.setAttribute("readonly", "");
+    area.style.position = "fixed";
+    area.style.opacity = "0";
+    document.body.append(area);
+    area.select();
+    document.execCommand("copy");
+    area.remove();
+  }
+  const button = document.querySelector<HTMLButtonElement>("[data-action=copy_logs]");
+  if (button) {
+    button.textContent = "복사됨";
+    window.setTimeout(() => {
+      if (button.isConnected) button.textContent = "전체 복사";
+    }, 1200);
+  }
+}
+
+function scheduleSearch() {
+  window.clearTimeout(searchTimer);
+  searchTimer = window.setTimeout(() => void loadSearch(1), 300);
+}
+
+function bind() {
+  document.querySelectorAll("[data-view]").forEach((element) => {
+    element.addEventListener("click", () => {
+      view = (element as HTMLElement).dataset.view as View;
+      render();
+      if (view === "search") void loadSearch(1);
+      if (view === "collector") void refreshCollectorStatus();
+    });
+  });
+
+  document.querySelector("[data-action=search]")?.addEventListener("click", () => void loadSearch(1));
+  document.querySelector("[data-action=reset_search]")?.addEventListener("click", () => {
+    companyName = "";
+    certificationNo = "";
+    certificationType = "";
+    certificationSubjectName = "";
+    statusFilter = "";
+    void loadSearch(1);
+  });
+
+  ["#filter-company", "#filter-cert-no", "#filter-subject"].forEach((selector) => {
+    document.querySelector(selector)?.addEventListener("input", scheduleSearch);
+  });
+  ["#filter-cert-type", "#filter-status"].forEach((selector) => {
+    document.querySelector(selector)?.addEventListener("change", () => void loadSearch(1));
+  });
+
+  document.querySelectorAll("[data-page]").forEach((element) => {
+    element.addEventListener("click", () => {
+      const page = Number((element as HTMLElement).dataset.page);
+      if (!Number.isFinite(page)) return;
+      void loadSearch(page);
+    });
+  });
+
+  document.querySelector("[data-action=start_collector]")?.addEventListener("click", async () => {
+    try {
+      await invoke("start_collector", {
+        args: {
+          newRun: true,
+          production: true,
+          pageUnit: 100,
+          stopAfterPage: null,
+        },
+      });
+      collectorLogs.push("[app] Start: new Production run");
+      await refreshCollectorStatus();
+      render();
+    } catch (error) {
+      collectorLogs.push(`[app] Start failed: ${String(error)}`);
+      render();
+    }
+  });
+
+  document.querySelector("[data-action=pause_collector]")?.addEventListener("click", async () => {
+    try {
+      await invoke("pause_collector");
+      collectorLogs.push("[app] Pause: checkpoint kept");
+      await refreshCollectorStatus();
+      render();
+    } catch (error) {
+      collectorLogs.push(`[app] Pause failed: ${String(error)}`);
+      render();
+    }
+  });
+
+  document.querySelector("[data-action=resume_collector]")?.addEventListener("click", async () => {
+    try {
+      await invoke("start_collector", {
+        args: {
+          newRun: false,
+          production: true,
+          pageUnit: 100,
+          stopAfterPage: null,
+        },
+      });
+      collectorLogs.push("[app] Resume: continue from checkpoint");
+      await refreshCollectorStatus();
+      render();
+    } catch (error) {
+      collectorLogs.push(`[app] Resume failed: ${String(error)}`);
+      render();
+    }
+  });
+
+  document.querySelector("[data-action=stop_collector]")?.addEventListener("click", async () => {
+    try {
+      await invoke("stop_collector");
+      collectorLogs.push("[app] Stop: run ended");
+      await refreshCollectorStatus();
+      render();
+    } catch (error) {
+      collectorLogs.push(`[app] Stop failed: ${String(error)}`);
+      render();
+    }
+  });
+
+  document.querySelector("[data-action=backup_db]")?.addEventListener("click", async () => {
+    try {
+      const result = await invoke<DbBackup>("backup_database");
+      collectorLogs.push(`[app] DB backup created: ${result.name}`);
+      await loadDbBackups();
+      await loadDbInfo();
+      render();
+    } catch (error) {
+      collectorLogs.push(`[app] Backup failed: ${String(error)}`);
+      render();
+    }
+  });
+
+  document.querySelector("[data-action=restore_db]")?.addEventListener("click", async () => {
+    readCollectorOptionsFromDom();
+    if (!selectedBackupName) return;
+    try {
+      await invoke("restore_database", { backupName: selectedBackupName });
+      collectorLogs.push(`[app] DB restored: ${selectedBackupName}`);
+      await loadDbBackups();
+      await loadDbInfo();
+      await loadFilterOptions();
+      await loadSearch(1);
+      render();
+    } catch (error) {
+      collectorLogs.push(`[app] Restore failed: ${String(error)}`);
+      render();
+    }
+  });
+
+  document.querySelector("[data-action=refresh_collector]")?.addEventListener("click", async () => {
+    await loadDbInfo();
+    await loadFilterOptions();
+    await loadSearch(1);
+    await refreshCollectorStatus();
+  });
+  document.querySelector("[data-action=copy_logs]")?.addEventListener("click", () => void copyLogs());
+}
+
+async function boot() {
+  setupWindowChrome();
+  await loadDbBackups();
+  await loadDbInfo();
+  await loadFilterOptions();
+  render();
+  if (!dbError) await loadSearch(1);
+
+  if ("__TAURI_INTERNALS__" in window) {
+    void listen<{ type?: string; message?: string }>("collector-event", (event) => {
+      const payload = event.payload;
+      if (payload.message) collectorLogs.push(payload.message);
+      if (collectorLogs.length > 500) collectorLogs = collectorLogs.slice(-500);
+      void refreshCollectorStatus();
+    });
+
+    statusPollTimer = window.setInterval(() => {
+      if (view === "collector" || collectorStatus.processRunning) void refreshCollectorStatus();
+    }, 3000);
+  }
+}
+
+void boot();
+
+// Keep timer reference for lint cleanliness
+void statusPollTimer;

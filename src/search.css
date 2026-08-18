@@ -1,0 +1,115 @@
+.search-panel {
+  padding: 18px;
+  display: grid;
+  gap: 14px;
+  margin-bottom: 18px;
+}
+.search-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+}
+.search-grid label {
+  display: grid;
+  gap: 6px;
+  color: #8ca59e;
+  font-size: 12px;
+}
+.search-grid input,
+.search-grid select {
+  padding: 12px;
+  border-radius: 9px;
+  border: 1px solid #3a6b5c;
+  background: #0c1613;
+  color: #fff;
+}
+.search-actions {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+.search-meta {
+  margin-left: auto;
+  font-size: 12px;
+  color: #7a9489;
+}
+
+.results-table {
+  border: 1px solid #2a4f44;
+  border-radius: 16px;
+  overflow: hidden;
+  background: #142820d9;
+}
+.results-head,
+.results-row {
+  display: grid;
+  grid-template-columns: 1.1fr 1fr 1.2fr 1.4fr 0.9fr 0.9fr 0.7fr;
+  gap: 12px;
+  padding: 12px 18px;
+  align-items: center;
+}
+.results-head {
+  background: #1a332b;
+  color: #6fd4a8;
+  font-size: 12px;
+  letter-spacing: 0.04em;
+  border-bottom: 1px solid #2a4f44;
+}
+.results-row {
+  border-top: 1px solid #1f3b32;
+  font-size: 13px;
+  color: #c5d8d1;
+}
+.results-row:hover { background: #18352c; }
+.results-row small { color: #7a9489; display: block; margin-top: 2px; }
+.status-pill {
+  display: inline-block;
+  padding: 4px 8px;
+  border-radius: 999px;
+  font-size: 11px;
+  background: #1a332b;
+  border: 1px solid #3a6b5c;
+}
+.status-pill.current { color: #6fd4a8; border-color: #4a9a7a; }
+.status-pill.historical { color: #a8b8b0; }
+.status-pill.unlimited { color: #dbff63; border-color: #8aaa3a; }
+.status-pill.unknown { color: #ffaaa2; border-color: #874b44; }
+
+.pagination-controls {
+  display: flex;
+  gap: 8px;
+  justify-content: center;
+  margin-top: 18px;
+}
+.pagination-controls button {
+  padding: 8px 12px;
+  border-radius: 8px;
+  border: 1px solid #3a6b5c;
+  background: #1a332b;
+  color: #c5d8d1;
+}
+.pagination-controls button.active {
+  background: #6fd4a8;
+  color: #06130f;
+  border-color: #6fd4a8;
+  font-weight: 700;
+}
+
+.empty-card {
+  text-align: center;
+  padding: 70px;
+  margin-top: 18px;
+}
+.empty-card p { color: #7a9489; }
+
+@media (max-width: 1100px) {
+  .search-grid { grid-template-columns: 1fr 1fr; }
+  .results-head,
+  .results-row {
+    grid-template-columns: 1fr 1fr;
+    gap: 8px;
+  }
+  .results-head span:nth-child(n+3),
+  .results-row span:nth-child(n+3) { display: none; }
+}

@@ -330,6 +330,7 @@ export function acquireRun(db: DatabaseSync, forceNew: boolean): { run: Collecti
     const existing = db.prepare(`SELECT * FROM collection_runs
       WHERE status IN ('running','interrupted') AND source_url=? AND source_mode=?
         AND page_unit=? AND search_over_date_yn='Y'
+        AND error_summary != 'stopped_by_user'
       ORDER BY id DESC LIMIT 1`).get(config.sourceUrl, config.sourceMode, config.pageUnit) as Record<string, unknown> | undefined;
     if (existing) {
       db.prepare("UPDATE collection_runs SET status='running', updated_at=?, error_summary=NULL WHERE id=?")

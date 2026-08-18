@@ -4,6 +4,10 @@
   "private": true,
   "type": "module",
   "scripts": {
+    "dev": "vite",
+    "build": "npm run typecheck && vite build",
+    "typecheck": "tsc --noEmit",
+    "tauri": "tauri",
     "collect:mvp": "node --experimental-strip-types collector/src/main.ts",
     "collect:production": "node --experimental-strip-types collector/src/main.ts --production --page-unit=100",
     "diagnose:last-page": "node --experimental-strip-types collector/src/diagnostic-last-page.ts",
@@ -14,7 +18,14 @@
     "compare:snapshots": "node --experimental-strip-types tools/snapshot-comparison/compare.ts"
   },
   "dependencies": {
+    "@tauri-apps/api": "^2.8.0",
     "playwright": "1.55.0"
+  },
+  "devDependencies": {
+    "@tauri-apps/cli": "^2.8.4",
+    "@types/node": "^24.3.0",
+    "typescript": "^5.9.2",
+    "vite": "^7.1.3"
   },
   "engines": {
     "node": ">=24"
