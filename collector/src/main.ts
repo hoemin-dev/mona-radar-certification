@@ -2,7 +2,7 @@ import { config } from "./config.ts";
 import { openBrowser } from "./browser.ts";
 import { checkpointPage, moveToPageViaVisibleBlocks } from "./paginator.ts";
 import { configurePageUnit, enableExpiredInclusion, loadSearchPage, readSearchTotal, submitSearchAndAssert } from "./search-state.ts";
-import { acquireRun, commitPage, completeRun, countRunRecords, failRun, incrementRetry, interruptRun, markPageFailed, openDatabase, productionIntegrity, saveFailures, setInitialSearchTotal, startPage } from "./sink.ts";
+import { acquireRun, commitPage, completeProductionRun, completeRun, countRunRecords, failRun, incrementRetry, interruptRun, markPageFailed, openDatabase, productionIntegrity, saveFailures, setInitialSearchTotal, startPage } from "./sink.ts";
 
 function numericArg(name: string, fallback?: number): number | undefined {
   const raw = process.argv.find((arg) => arg.startsWith(`--${name}=`))?.split("=",2)[1];
@@ -77,7 +77,7 @@ try {
 
   if (config.production && stopAfterPage===totalPages) {
     const integrity=productionIntegrity(db,run.id,totalPages,searchTotal);
-    completeRun(db,run.id);
+    completeProductionRun(db,run.id);
     console.log(`integrity=${JSON.stringify(integrity)}`);
     console.log(`collection_elapsed_ms=${Date.now()-runStartedAt}`);
     console.log("collection_complete");

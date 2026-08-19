@@ -118,6 +118,29 @@ fn open_connection() -> Result<Connection, String> {
         .map_err(|e| e.to_string())?;
     conn.busy_timeout(std::time::Duration::from_secs(5))
         .map_err(|e| e.to_string())?;
+    conn.execute_batch(
+        "CREATE TABLE IF NOT EXISTS certification_corrections (
+           id INTEGER PRIMARY KEY AUTOINCREMENT,
+           certification_type TEXT NOT NULL,
+           certification_no TEXT NOT NULL,
+           field_name TEXT NOT NULL,
+           corrected_value TEXT NOT NULL,
+           source_url TEXT NOT NULL,
+           reason TEXT NOT NULL,
+           created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+           updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+           UNIQUE(certification_type, certification_no, field_name)
+         );
+         CREATE TRIGGER IF NOT EXISTS certification_corrections_touch_updated_at
+         AFTER UPDATE ON certification_corrections
+         FOR EACH ROW WHEN NEW.updated_at = OLD.updated_at
+         BEGIN
+           UPDATE certification_corrections
+           SET updated_at = CURRENT_TIMESTAMP
+           WHERE id = NEW.id;
+         END;",
+    )
+    .map_err(|e| e.to_string())?;
     Ok(conn)
 }
 
@@ -172,7 +195,7 @@ struct DbInfo {
     path: String,
     run_id: i64,
     run_status: String,
-    occurrence_count: i64,
+    record_count: i64,
 }
 
 #[tauri::command]
@@ -186,9 +209,9 @@ fn database_info() -> Result<DbInfo, String> {
             |row| row.get(0),
         )
         .map_err(|e| e.to_string())?;
-    let occurrence_count: i64 = conn
+    let record_count: i64 = conn
         .query_row(
-            "SELECT COUNT(*) FROM certification_snapshot_occurrences WHERE run_id = ?",
+            "SELECT COUNT(*) FROM certification_records WHERE run_id = ?",
             [run_id],
             |row| row.get(0),
         )
@@ -197,7 +220,7 @@ fn database_info() -> Result<DbInfo, String> {
         path: db_path()?.display().to_string(),
         run_id,
         run_status,
-        occurrence_count,
+        record_count,
     })
 }
 
@@ -225,6 +248,43 @@ struct CertificationRow {
     is_unlimited: bool,
     status_class: String,
     status_unknown: bool,
+    company_name_corrected: bool,
+    product_name_corrected: bool,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct CertificationCorrection {
+    field_name: String,
+    corrected_value: String,
+    source_url: String,
+    reason: String,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct CertificationDetail {
+    row: CertificationRow,
+    original_company_name: String,
+    original_product_name: Option<String>,
+    corrections: Vec<CertificationCorrection>,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct SaveCorrectionInput {
+    record_id: i64,
+    field_name: String,
+    corrected_value: String,
+    source_url: String,
+    reason: String,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct DeleteCorrectionInput {
+    record_id: i64,
+    field_name: String,
 }
 
 #[derive(Serialize)]
@@ -242,14 +302,162 @@ fn map_row(row: &Row<'_>) -> rusqlite::Result<CertificationRow> {
         id: row.get("id")?,
         certification_type: row.get("certification_type")?,
         certification_no: row.get("certification_no")?,
-        company_name: row.get("company_name_raw")?,
+        company_name: row.get("company_name")?,
         certification_subject_name: row.get("certification_subject_name")?,
         certification_start_date: row.get("certification_start_date")?,
         certification_end_date: row.get("certification_end_date")?,
         is_unlimited: row.get::<_, i64>("is_unlimited")? == 1,
         status_class: row.get("status_class")?,
         status_unknown: row.get::<_, i64>("status_unknown")? == 1,
+        company_name_corrected: row.get::<_, i64>("company_name_corrected")? == 1,
+        product_name_corrected: row.get::<_, i64>("product_name_corrected")? == 1,
     })
+}
+
+const EFFECTIVE_RECORDS_SQL: &str = "WITH effective_records AS (
+    SELECT r.*,
+           COALESCE(company.corrected_value, r.company_name) AS effective_company_name,
+           COALESCE(product.corrected_value, r.product_name) AS effective_product_name,
+           CASE WHEN company.id IS NULL THEN 0 ELSE 1 END AS company_name_corrected,
+           CASE WHEN product.id IS NULL THEN 0 ELSE 1 END AS product_name_corrected
+    FROM certification_records r
+    LEFT JOIN certification_corrections company
+      ON company.certification_type = r.certification_type
+     AND company.certification_no = r.certification_no
+     AND company.field_name = 'company_name'
+    LEFT JOIN certification_corrections product
+      ON product.certification_type = r.certification_type
+     AND product.certification_no = r.certification_no
+     AND product.field_name = 'product_name'
+)";
+
+#[tauri::command]
+fn certification_detail(id: i64) -> Result<Option<CertificationDetail>, String> {
+    let conn = open_connection()?;
+    let run_id = preferred_run_id(&conn)?;
+    let sql = format!(
+        "{EFFECTIVE_RECORDS_SQL}
+         SELECT id, certification_type, certification_no, effective_company_name AS company_name,
+                effective_product_name AS certification_subject_name, certification_start_date,
+                certification_end_date, is_unlimited_end_date AS is_unlimited,
+                CASE WHEN is_unlimited_end_date = 1 OR is_currently_valid = 1 THEN 'current'
+                     WHEN historical_certification = 1 THEN 'historical' ELSE 'unknown' END AS status_class,
+                CASE WHEN is_unlimited_end_date = 0 AND is_currently_valid IS NOT 1
+                          AND historical_certification IS NOT 1 THEN 1 ELSE 0 END AS status_unknown,
+                company_name_corrected, product_name_corrected, company_name AS original_company_name,
+                product_name AS original_product_name
+         FROM effective_records WHERE run_id = ? AND id = ?"
+    );
+    let detail = conn
+        .query_row(&sql, rusqlite::params![run_id, id], |row| {
+            Ok((
+                map_row(row)?,
+                row.get::<_, String>("original_company_name")?,
+                row.get::<_, Option<String>>("original_product_name")?,
+            ))
+        })
+        .optional()
+        .map_err(|e| e.to_string())?;
+    let Some((row, original_company_name, original_product_name)) = detail else {
+        return Ok(None);
+    };
+    let mut stmt = conn
+        .prepare(
+            "SELECT field_name, corrected_value, source_url, reason
+             FROM certification_corrections
+             WHERE certification_type = ? AND certification_no = ?
+               AND field_name IN ('company_name', 'product_name')
+             ORDER BY field_name",
+        )
+        .map_err(|e| e.to_string())?;
+    let corrections = stmt
+        .query_map(
+            rusqlite::params![row.certification_type, row.certification_no],
+            |correction| {
+                Ok(CertificationCorrection {
+                    field_name: correction.get(0)?,
+                    corrected_value: correction.get(1)?,
+                    source_url: correction.get(2)?,
+                    reason: correction.get(3)?,
+                })
+            },
+        )
+        .map_err(|e| e.to_string())?
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(|e| e.to_string())?;
+    Ok(Some(CertificationDetail {
+        row,
+        original_company_name,
+        original_product_name,
+        corrections,
+    }))
+}
+
+fn correction_target(
+    conn: &Connection,
+    record_id: i64,
+    field_name: &str,
+) -> Result<(String, String), String> {
+    if !matches!(field_name, "company_name" | "product_name") {
+        return Err("보정 필드는 company_name 또는 product_name만 허용됩니다.".to_string());
+    }
+    let run_id = preferred_run_id(conn)?;
+    conn.query_row(
+        "SELECT certification_type, certification_no FROM certification_records
+         WHERE run_id = ? AND id = ? AND certification_no IS NOT NULL",
+        rusqlite::params![run_id, record_id],
+        |row| Ok((row.get(0)?, row.get(1)?)),
+    )
+    .optional()
+    .map_err(|e| e.to_string())?
+    .ok_or_else(|| "보정할 인증 레코드를 찾을 수 없습니다.".to_string())
+}
+
+#[tauri::command]
+fn save_certification_correction(input: SaveCorrectionInput) -> Result<(), String> {
+    let corrected_value = input.corrected_value.trim();
+    let source_url = input.source_url.trim();
+    let reason = input.reason.trim();
+    if corrected_value.is_empty() || source_url.is_empty() || reason.is_empty() {
+        return Err("보정값, 출처 URL, 보정 사유를 모두 입력하세요.".to_string());
+    }
+    let conn = open_connection()?;
+    let (certification_type, certification_no) =
+        correction_target(&conn, input.record_id, &input.field_name)?;
+    conn.execute(
+        "INSERT INTO certification_corrections
+           (certification_type, certification_no, field_name, corrected_value, source_url, reason)
+         VALUES (?, ?, ?, ?, ?, ?)
+         ON CONFLICT(certification_type, certification_no, field_name) DO UPDATE SET
+           corrected_value = excluded.corrected_value,
+           source_url = excluded.source_url,
+           reason = excluded.reason,
+           updated_at = CURRENT_TIMESTAMP",
+        rusqlite::params![
+            certification_type,
+            certification_no,
+            input.field_name,
+            corrected_value,
+            source_url,
+            reason
+        ],
+    )
+    .map_err(|e| e.to_string())?;
+    Ok(())
+}
+
+#[tauri::command]
+fn delete_certification_correction(input: DeleteCorrectionInput) -> Result<(), String> {
+    let conn = open_connection()?;
+    let (certification_type, certification_no) =
+        correction_target(&conn, input.record_id, &input.field_name)?;
+    conn.execute(
+        "DELETE FROM certification_corrections
+         WHERE certification_type = ? AND certification_no = ? AND field_name = ?",
+        rusqlite::params![certification_type, certification_no, input.field_name],
+    )
+    .map_err(|e| e.to_string())?;
+    Ok(())
 }
 
 #[tauri::command]
@@ -269,7 +477,7 @@ fn search_certifications(filters: SearchFilters) -> Result<SearchResponse, Strin
         .map(|s| s.trim())
         .filter(|s| !s.is_empty())
     {
-        where_parts.push("company_name_raw LIKE ?".to_string());
+        where_parts.push("effective_company_name LIKE ?".to_string());
         values.push(Box::new(format!("%{value}%")));
     }
     if let Some(value) = filters
@@ -296,16 +504,16 @@ fn search_certifications(filters: SearchFilters) -> Result<SearchResponse, Strin
         .map(|s| s.trim())
         .filter(|s| !s.is_empty())
     {
-        where_parts.push("certification_subject_name LIKE ?".to_string());
+        where_parts.push("effective_product_name LIKE ?".to_string());
         values.push(Box::new(format!("%{value}%")));
     }
     if let Some(status) = filters.status.as_deref() {
         match status {
-            "current" => where_parts.push("status_class = 'current'".to_string()),
-            "historical" => where_parts.push("status_class = 'historical'".to_string()),
-            "unlimited" => where_parts.push("is_unlimited = 1".to_string()),
+            "current" => where_parts.push("(is_unlimited_end_date = 1 OR is_currently_valid = 1)".to_string()),
+            "historical" => where_parts.push("(is_unlimited_end_date = 0 AND is_currently_valid IS NOT 1 AND historical_certification = 1)".to_string()),
+            "unlimited" => where_parts.push("is_unlimited_end_date = 1".to_string()),
             "unknown" => {
-                where_parts.push("(status_unknown = 1 OR status_class = 'unknown')".to_string())
+                where_parts.push("(is_unlimited_end_date = 0 AND is_currently_valid IS NOT 1 AND historical_certification IS NOT 1)".to_string())
             }
             _ => {}
         }
@@ -313,7 +521,7 @@ fn search_certifications(filters: SearchFilters) -> Result<SearchResponse, Strin
 
     let where_sql = where_parts.join(" AND ");
     let count_sql = format!(
-        "SELECT COUNT(*) FROM certification_snapshot_occurrences WHERE {where_sql}"
+        "{EFFECTIVE_RECORDS_SQL} SELECT COUNT(*) FROM effective_records WHERE {where_sql}"
     );
     let total: i64 = conn
         .query_row(
@@ -324,12 +532,18 @@ fn search_certifications(filters: SearchFilters) -> Result<SearchResponse, Strin
         .map_err(|e| e.to_string())?;
 
     let query_sql = format!(
-        "SELECT id, certification_type, certification_no, company_name_raw,
-                certification_subject_name, certification_start_date, certification_end_date,
-                is_unlimited, status_class, status_unknown
-         FROM certification_snapshot_occurrences
+        "{EFFECTIVE_RECORDS_SQL}
+         SELECT id, certification_type, certification_no, effective_company_name AS company_name,
+                effective_product_name AS certification_subject_name, certification_start_date, certification_end_date,
+                is_unlimited_end_date AS is_unlimited,
+                CASE WHEN is_unlimited_end_date = 1 OR is_currently_valid = 1 THEN 'current'
+                     WHEN historical_certification = 1 THEN 'historical' ELSE 'unknown' END AS status_class,
+                CASE WHEN is_unlimited_end_date = 0 AND is_currently_valid IS NOT 1
+                          AND historical_certification IS NOT 1 THEN 1 ELSE 0 END AS status_unknown,
+                company_name_corrected, product_name_corrected
+         FROM effective_records
          WHERE {where_sql}
-         ORDER BY certification_type, company_name_raw, certification_no
+         ORDER BY certification_type, effective_company_name, certification_no
          LIMIT ? OFFSET ?"
     );
     let mut query_values = values;
@@ -374,7 +588,7 @@ fn filter_options() -> Result<FilterOptions, String> {
     let mut stmt = conn
         .prepare(
             "SELECT DISTINCT certification_type
-             FROM certification_snapshot_occurrences
+             FROM certification_records
              WHERE run_id = ?
              ORDER BY certification_type COLLATE NOCASE",
         )
@@ -786,6 +1000,9 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             database_info,
             search_certifications,
+            certification_detail,
+            save_certification_correction,
+            delete_certification_correction,
             filter_options,
             collector_status,
             start_collector,

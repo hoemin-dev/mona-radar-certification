@@ -60,6 +60,13 @@
   border-top: 1px solid #1f3b32;
   font-size: 13px;
   color: #c5d8d1;
+  width: 100%;
+  border-right: 0;
+  border-bottom: 0;
+  border-left: 0;
+  border-radius: 0;
+  background: transparent;
+  text-align: left;
 }
 .results-row:hover { background: #18352c; }
 .results-row small { color: #7a9489; display: block; margin-top: 2px; }
@@ -75,6 +82,39 @@
 .status-pill.historical { color: #a8b8b0; }
 .status-pill.unlimited { color: #dbff63; border-color: #8aaa3a; }
 .status-pill.unknown { color: #ffaaa2; border-color: #874b44; }
+.correction-badge {
+  display: inline-block !important;
+  margin-left: 6px !important;
+  padding: 2px 5px;
+  border: 1px solid #b49b3f;
+  border-radius: 999px;
+  color: #ffe47a !important;
+  font-size: 9px !important;
+}
+.detail-panel {
+  padding: 18px;
+  margin-bottom: 18px;
+  border: 1px solid #3a6b5c;
+  border-radius: 16px;
+  background: #12261f;
+}
+.detail-head, .correction-actions { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.detail-head h3, .correction-editor h4 { margin: 3px 0 0; }
+.detail-summary { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin: 16px 0; }
+.detail-summary > div { padding: 12px; border-radius: 10px; background: #0c1915; }
+.detail-summary small, .detail-summary strong, .detail-summary em { display: block; }
+.detail-summary small { color: #8ca59e; }
+.detail-summary strong { margin-top: 6px; }
+.detail-summary em { margin-top: 5px; color: #7a9489; font-size: 11px; font-style: normal; }
+.correction-editor { padding-top: 15px; border-top: 1px solid #2a4f44; }
+.correction-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin: 12px 0; }
+.correction-grid label { display: grid; gap: 5px; color: #8ca59e; font-size: 12px; }
+.correction-grid input, .correction-grid select, .correction-grid textarea { padding: 10px; border: 1px solid #3a6b5c; border-radius: 8px; background: #0c1613; color: #fff; }
+.correction-grid input[readonly] { color: #8ca59e; background: #13231e; }
+.correction-reason { grid-column: 1 / -1; }
+.correction-actions { justify-content: flex-start; }
+.correction-actions .danger { color: #ffaaa2; border-color: #874b44; }
+.correction-error { color: #ffaaa2; font-size: 12px; }
 
 .pagination-controls {
   display: flex;
@@ -112,4 +152,6 @@
   }
   .results-head span:nth-child(n+3),
   .results-row span:nth-child(n+3) { display: none; }
+  .detail-summary, .correction-grid { grid-template-columns: 1fr; }
+  .correction-reason { grid-column: auto; }
 }

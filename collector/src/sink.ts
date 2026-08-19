@@ -3,7 +3,6 @@ import { dirname } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import { config } from "./config.ts";
 import type { CertificationRecord, CollectionRun, RowParseFailure } from "./types.ts";
-import { toSnapshotOccurrence } from "./occurrence-model.ts";
 import { SOURCE_CERTIFICATION_CODE_VERSION, sourceCertificationCodeFor, sourceCertificationCodes } from "./source-certification-codes.ts";
 
 const now = (): string => new Date().toISOString();
@@ -166,123 +165,26 @@ export function openDatabase(): DatabaseSync {
       notes TEXT,
       PRIMARY KEY (certification_type, mapping_version)
     );
-    CREATE TABLE IF NOT EXISTS certification_snapshot_occurrences (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      run_id INTEGER NOT NULL REFERENCES collection_runs(id),
-      source_page_no INTEGER NOT NULL,
-      source_row_no INTEGER,
-      certification_type TEXT NOT NULL,
-      source_certification_code TEXT,
-      certification_no TEXT,
-      certification_subject_name TEXT,
-      company_name_raw TEXT NOT NULL,
-      company_name_normalized TEXT,
-      representative_name_raw TEXT,
-      address_raw TEXT,
-      certification_start_date_raw TEXT NOT NULL,
-      certification_end_date_raw TEXT NOT NULL,
-      certification_start_date TEXT,
-      certification_end_date TEXT,
-      is_unlimited INTEGER NOT NULL CHECK(is_unlimited IN (0,1)),
-      status_class TEXT NOT NULL CHECK(status_class IN ('current','historical','unknown')),
-      is_currently_valid INTEGER,
-      is_historical INTEGER,
-      status_unknown INTEGER NOT NULL CHECK(status_unknown IN (0,1)),
-      image_url TEXT,
-      raw_json TEXT NOT NULL,
-      candidate_fingerprint TEXT,
-      candidate_rule_version TEXT NOT NULL,
-      collected_at TEXT NOT NULL,
-      created_at TEXT NOT NULL,
-      UNIQUE(run_id, source_page_no, source_row_no)
-    );
-    CREATE TABLE IF NOT EXISTS certification_entities (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      entity_status TEXT NOT NULL DEFAULT 'candidate' CHECK(entity_status IN ('candidate','active','retired')),
-      entity_type TEXT NOT NULL DEFAULT 'certification',
-      created_at TEXT NOT NULL,
-      updated_at TEXT NOT NULL
-    );
-    CREATE TABLE IF NOT EXISTS certification_entity_matches (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      occurrence_id INTEGER NOT NULL REFERENCES certification_snapshot_occurrences(id),
-      entity_id INTEGER NOT NULL REFERENCES certification_entities(id),
-      match_method TEXT NOT NULL,
-      match_rule_version TEXT,
-      confidence REAL,
-      match_status TEXT NOT NULL CHECK(match_status IN ('candidate','accepted','rejected','manual')),
-      evidence_json TEXT NOT NULL DEFAULT '{}',
-      created_at TEXT NOT NULL,
-      reviewed_at TEXT,
-      UNIQUE(occurrence_id, entity_id)
-    );
-    CREATE TABLE IF NOT EXISTS certification_identity_policies (
+    CREATE TABLE IF NOT EXISTS certification_corrections (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       certification_type TEXT NOT NULL,
-      source_certification_code TEXT,
-      policy_version TEXT NOT NULL,
-      identity_semantics TEXT NOT NULL,
-      candidate_rule TEXT NOT NULL,
-      auto_merge_allowed INTEGER NOT NULL DEFAULT 0 CHECK(auto_merge_allowed IN (0,1)),
-      notes TEXT NOT NULL,
-      created_at TEXT NOT NULL,
-      UNIQUE(certification_type, policy_version)
+      certification_no TEXT NOT NULL,
+      field_name TEXT NOT NULL,
+      corrected_value TEXT NOT NULL,
+      source_url TEXT NOT NULL,
+      reason TEXT NOT NULL,
+      created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      UNIQUE(certification_type, certification_no, field_name)
     );
-    CREATE TABLE IF NOT EXISTS certification_company_relations (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      entity_id INTEGER REFERENCES certification_entities(id),
-      occurrence_id INTEGER REFERENCES certification_snapshot_occurrences(id),
-      company_reference_id INTEGER,
-      company_name_raw TEXT NOT NULL,
-      relation_role TEXT,
-      relation_status TEXT NOT NULL DEFAULT 'observed' CHECK(relation_status IN ('observed','candidate','accepted','rejected')),
-      evidence_source TEXT NOT NULL,
-      confidence REAL,
-      created_at TEXT NOT NULL
-    );
-    CREATE TABLE IF NOT EXISTS certification_subjects (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      subject_name_raw TEXT NOT NULL,
-      subject_name_normalized TEXT,
-      subject_kind TEXT,
-      created_at TEXT NOT NULL
-    );
-    CREATE TABLE IF NOT EXISTS certification_periods (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      entity_id INTEGER REFERENCES certification_entities(id),
-      occurrence_id INTEGER REFERENCES certification_snapshot_occurrences(id),
-      start_date_raw TEXT NOT NULL,
-      end_date_raw TEXT NOT NULL,
-      start_date TEXT,
-      end_date TEXT,
-      is_unlimited INTEGER NOT NULL CHECK(is_unlimited IN (0,1)),
-      period_relation_status TEXT,
-      created_at TEXT NOT NULL
-    );
-    CREATE TABLE IF NOT EXISTS certification_detailed_item_evidence (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      occurrence_id INTEGER REFERENCES certification_snapshot_occurrences(id),
-      entity_id INTEGER REFERENCES certification_entities(id),
-      detailed_item_code TEXT NOT NULL,
-      detailed_item_name TEXT NOT NULL,
-      evidence_type TEXT NOT NULL CHECK(evidence_type IN ('FILTER_RESULT','POPUP_SELECTION','MANUAL_VERIFICATION')),
-      evidence_scope TEXT NOT NULL CHECK(evidence_scope IN ('CERTIFICATION','OCCURRENCE','UNKNOWN')),
-      evidence_query_json TEXT NOT NULL DEFAULT '{}',
-      source_url TEXT,
-      observed_at TEXT NOT NULL,
-      confidence REAL,
-      notes TEXT
-    );
-    CREATE INDEX IF NOT EXISTS certification_snapshot_occurrences_run_lookup_idx
-      ON certification_snapshot_occurrences(run_id, certification_type, source_certification_code, certification_no);
-    CREATE INDEX IF NOT EXISTS certification_snapshot_occurrences_company_idx
-      ON certification_snapshot_occurrences(run_id, company_name_normalized);
-    CREATE INDEX IF NOT EXISTS certification_snapshot_occurrences_subject_idx
-      ON certification_snapshot_occurrences(run_id, certification_subject_name);
-    CREATE INDEX IF NOT EXISTS certification_snapshot_occurrences_status_idx
-      ON certification_snapshot_occurrences(run_id, status_class, is_unlimited);
-    CREATE INDEX IF NOT EXISTS certification_snapshot_occurrences_candidate_idx
-      ON certification_snapshot_occurrences(candidate_fingerprint, candidate_rule_version);
+    CREATE TRIGGER IF NOT EXISTS certification_corrections_touch_updated_at
+    AFTER UPDATE ON certification_corrections
+    FOR EACH ROW WHEN NEW.updated_at = OLD.updated_at
+    BEGIN
+      UPDATE certification_corrections
+      SET updated_at = CURRENT_TIMESTAMP
+      WHERE id = NEW.id;
+    END;
   `);
   const pageColumns = db.prepare("PRAGMA table_info(collection_run_pages)").all() as Array<{ name: string }>;
   if (!pageColumns.some((column) => column.name === "page_elapsed_ms")) {
@@ -299,19 +201,6 @@ export function openDatabase(): DatabaseSync {
     (certification_type,source_certification_code,mapping_version,observed_at,notes) VALUES (?,?,?,?,?)`);
   for (const [type, code] of Object.entries(sourceCertificationCodes)) {
     mappingInsert.run(type, code, SOURCE_CERTIFICATION_CODE_VERSION, now(), "Public SMPP search checkbox mapping");
-  }
-  const policyInsert = db.prepare(`INSERT OR IGNORE INTO certification_identity_policies
-    (certification_type,source_certification_code,policy_version,identity_semantics,candidate_rule,auto_merge_allowed,notes,created_at)
-    VALUES (?,?, 'v1', 'occurrence_only', 'C1', 0, ?, ?)`);
-  for (const [type, code] of Object.entries(sourceCertificationCodes)) {
-    const notes = type === "NET"
-      ? "Same number can span multiple companies and technical subjects; number-only identity prohibited."
-      : type === "산업융합품목"
-        ? "Same number can span multiple companies and subjects; group/batch semantics unresolved."
-        : type === "우수조달공동상표"
-          ? "Overlapping periods and visible-identical occurrences observed; renewal auto-merge prohibited."
-          : "No automatic entity merge; preserve source snapshot occurrences.";
-    policyInsert.run(type, code, notes, now());
   }
   return db;
 }
@@ -358,28 +247,6 @@ export function startPage(db: DatabaseSync, runId: number, pageNo: number): void
 
 const bool = (value: boolean | null): number | null => value === null ? null : Number(value);
 
-function occurrenceValues(runId: number, record: CertificationRecord, createdAt: string): unknown[] {
-  const occurrence = toSnapshotOccurrence(record);
-  return [
-    runId, record.sourcePageNo, record.sourceRowNo, record.certificationType, occurrence.sourceCertificationCode,
-    record.certificationNo, occurrence.certificationSubjectName, record.companyName, occurrence.companyNameNormalized,
-    record.representativeName, record.addressRaw, occurrence.certificationStartDateRaw, occurrence.certificationEndDateRaw,
-    record.certificationStartDate, record.certificationEndDate, Number(occurrence.isUnlimited), occurrence.statusClass,
-    bool(record.isCurrentlyValid), bool(record.historicalCertification), Number(occurrence.statusUnknown), record.imageUrl,
-    record.rawJson, occurrence.candidateFingerprint, occurrence.candidateRuleVersion, record.collectedAt, createdAt,
-  ];
-}
-
-function occurrenceInsert(db: DatabaseSync) {
-  return db.prepare(`INSERT OR IGNORE INTO certification_snapshot_occurrences (
-    run_id,source_page_no,source_row_no,certification_type,source_certification_code,certification_no,
-    certification_subject_name,company_name_raw,company_name_normalized,representative_name_raw,address_raw,
-    certification_start_date_raw,certification_end_date_raw,certification_start_date,certification_end_date,
-    is_unlimited,status_class,is_currently_valid,is_historical,status_unknown,image_url,raw_json,
-    candidate_fingerprint,candidate_rule_version,collected_at,created_at
-  ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`);
-}
-
 export function commitPage(db: DatabaseSync, runId: number, page: {
   pageNo: number; searchTotal: number; rowsFound: number; rowsParsed: number;
   firstNo: number | null; lastNo: number | null; records: CertificationRecord[];
@@ -387,7 +254,7 @@ export function commitPage(db: DatabaseSync, runId: number, page: {
 }, injectFailure = false, pageStartedAt = Date.now()): { inserted: number; elapsedMs: number } {
   if (page.failures.length !== 0) throw new Error("Cannot complete a page with parsing diagnostics");
   const unmappedTypes = [...new Set(page.records
-    .filter((record) => toSnapshotOccurrence(record).sourceCertificationCode === null)
+    .filter((record) => sourceCertificationCodeFor(record.certificationType) === null)
     .map((record) => record.certificationType))];
   if (unmappedTypes.length > 0) {
     throw new Error(`Unmapped SMPP certification type(s): ${unmappedTypes.join(", ")}`);
@@ -399,7 +266,6 @@ export function commitPage(db: DatabaseSync, runId: number, page: {
     business_registration_no,company_identifier,detailed_item_name,detailed_item_code,
     source_seq_no,detail_url,raw_json,collected_at
   ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`);
-  const insertOccurrence = occurrenceInsert(db);
   db.exec("BEGIN");
   try {
     if (page.firstNo !== null && page.lastNo !== null) {
@@ -416,7 +282,6 @@ export function commitPage(db: DatabaseSync, runId: number, page: {
         r.businessRegistrationNo,r.companyIdentifier,r.detailedItemName,r.detailedItemCode,
         r.sourceSeqNo,r.detailUrl,r.rawJson,r.collectedAt,
       ).changes);
-      insertOccurrence.run(...occurrenceValues(runId, r, now()));
     }
     if (injectFailure) throw new Error(`Injected failure while committing page ${page.pageNo}`);
     const completedAt = now();
@@ -464,6 +329,25 @@ export function completeRun(db: DatabaseSync, runId: number): void {
     .run(timestamp, timestamp, runId);
 }
 
+export function completeProductionRun(db: DatabaseSync, runId: number): void {
+  const run = db.prepare("SELECT source_mode FROM collection_runs WHERE id=?").get(runId) as { source_mode: string } | undefined;
+  if (!run?.source_mode.startsWith("production")) {
+    throw new Error(`Run ${runId} is not a production run`);
+  }
+
+  const timestamp = now();
+  db.exec("BEGIN");
+  try {
+    db.prepare("UPDATE collection_runs SET status='completed',updated_at=?,completed_at=?,error_summary=NULL WHERE id=?")
+      .run(timestamp, timestamp, runId);
+    db.prepare("DELETE FROM certification_records WHERE run_id<>?").run(runId);
+    db.exec("COMMIT");
+  } catch (error) {
+    db.exec("ROLLBACK");
+    throw error;
+  }
+}
+
 export function failRun(db: DatabaseSync, runId: number, error: unknown): void {
   db.prepare("UPDATE collection_runs SET status='failed',updated_at=?,error_summary=? WHERE id=?")
     .run(now(), error instanceof Error ? error.message : String(error), runId);
@@ -492,114 +376,6 @@ export function productionIntegrity(db: DatabaseSync, runId: number, totalPages:
   if (result.count !== searchTotal || result.distinctCount !== searchTotal || result.minNo !== 1 || result.maxNo !== searchTotal ||
       result.completedPages !== totalPages || result.failedPages !== 0 || result.diagnostics !== 0 || result.foreignKeyViolations !== 0) {
     throw new Error(`Production integrity failed: ${JSON.stringify(result)}`);
-  }
-  return result;
-}
-
-function legacyRecord(row: Record<string, unknown>): CertificationRecord {
-  let raw: Record<string, unknown> = {};
-  try { raw = JSON.parse(String(row.raw_json)) as Record<string, unknown>; } catch { /* raw_json is still preserved below */ }
-  return {
-    sourceRowNo: row.source_row_no === null ? null : Number(row.source_row_no),
-    certificationType: String(row.certification_type),
-    certificationNo: row.certification_no === null ? null : String(row.certification_no),
-    productName: row.product_name === null ? null : String(row.product_name),
-    companyName: String(row.company_name),
-    representativeName: row.representative_name === null ? null : String(row.representative_name),
-    addressRaw: row.address_raw === null ? null : String(row.address_raw),
-    certificationStartDateRaw: String(raw.rawStartDate ?? row.certification_start_date ?? ""),
-    certificationEndDateRaw: String(raw.rawEndDate ?? row.certification_end_date ?? ""),
-    certificationStartDate: row.certification_start_date === null ? null : String(row.certification_start_date),
-    certificationEndDate: row.certification_end_date === null ? null : String(row.certification_end_date),
-    isCurrentlyValid: row.is_currently_valid === null ? null : Number(row.is_currently_valid) === 1,
-    historicalCertification: row.historical_certification === null ? null : Number(row.historical_certification) === 1,
-    isUnlimitedEndDate: Number(row.is_unlimited_end_date) === 1,
-    imageUrl: row.image_url === null ? null : String(row.image_url),
-    sourcePageNo: Number(row.source_page_no),
-    businessRegistrationNo: null, companyIdentifier: null, detailedItemName: null, detailedItemCode: null,
-    sourceSeqNo: null, detailUrl: null, rawJson: String(row.raw_json), collectedAt: String(row.collected_at),
-  };
-}
-
-export function backfillOccurrenceRun(db: DatabaseSync, runId: number): number {
-  const sourceCount = Number((db.prepare("SELECT COUNT(*) count FROM certification_records WHERE run_id=?").get(runId) as { count: number }).count);
-  if (sourceCount === 0) throw new Error(`No legacy certification_records found for run ${runId}`);
-  const existingCount = Number((db.prepare("SELECT COUNT(*) count FROM certification_snapshot_occurrences WHERE run_id=?").get(runId) as { count: number }).count);
-  if (existingCount !== 0 && existingCount !== sourceCount) {
-    throw new Error(`Refusing partial backfill for run ${runId}: source=${sourceCount} occurrences=${existingCount}`);
-  }
-  if (existingCount === sourceCount) {
-    refreshOccurrenceDerivedFields(db, runId);
-    return 0;
-  }
-  const rows = db.prepare("SELECT * FROM certification_records WHERE run_id=? ORDER BY source_page_no,source_row_no").all(runId) as Record<string, unknown>[];
-  const insert = occurrenceInsert(db);
-  const createdAt = now();
-  db.exec("BEGIN");
-  try {
-    let inserted = 0;
-    for (const row of rows) {
-      const record = legacyRecord(row);
-      inserted += Number(insert.run(...occurrenceValues(runId, record, createdAt)).changes);
-    }
-    if (inserted !== sourceCount) throw new Error(`Backfill count mismatch: expected=${sourceCount} inserted=${inserted}`);
-    db.exec("COMMIT");
-    return inserted;
-  } catch (error) {
-    db.exec("ROLLBACK");
-    throw error;
-  }
-}
-
-export function refreshOccurrenceDerivedFields(db: DatabaseSync, runId: number): number {
-  const types = db.prepare("SELECT DISTINCT certification_type FROM certification_snapshot_occurrences WHERE run_id=?").all(runId) as Array<{ certification_type: string }>;
-  const update = db.prepare("UPDATE certification_snapshot_occurrences SET source_certification_code=? WHERE run_id=? AND certification_type=?");
-  db.exec("BEGIN");
-  try {
-    let changed = 0;
-    for (const row of types) changed += Number(update.run(sourceCertificationCodeFor(row.certification_type), runId, row.certification_type).changes);
-    db.exec("COMMIT");
-    return changed;
-  } catch (error) {
-    db.exec("ROLLBACK");
-    throw error;
-  }
-}
-
-export function verifyOccurrenceBackfill(db: DatabaseSync, runId: number) {
-  const source = db.prepare(`SELECT COUNT(*) count,COUNT(DISTINCT source_row_no) distinct_count,
-    MIN(source_row_no) min_no,MAX(source_row_no) max_no FROM certification_records WHERE run_id=?`).get(runId) as Record<string, number>;
-  const occurrence = db.prepare(`SELECT COUNT(*) count,COUNT(DISTINCT source_row_no) distinct_count,
-    MIN(source_row_no) min_no,MAX(source_row_no) max_no,SUM(is_unlimited=1) unlimited_count,
-    SUM(status_unknown=1) unknown_count FROM certification_snapshot_occurrences WHERE run_id=?`).get(runId) as Record<string, number>;
-  const fieldDifferences = Number((db.prepare(`SELECT COUNT(*) count FROM (
-    SELECT source_page_no,source_row_no,certification_type,certification_no,company_name,product_name,certification_start_date,certification_end_date
-      FROM certification_records WHERE run_id=?
-    EXCEPT
-    SELECT source_page_no,source_row_no,certification_type,certification_no,company_name_raw,certification_subject_name,certification_start_date,certification_end_date
-      FROM certification_snapshot_occurrences WHERE run_id=?
-  )`).get(runId, runId) as { count: number }).count);
-  const reverseFieldDifferences = Number((db.prepare(`SELECT COUNT(*) count FROM (
-    SELECT source_page_no,source_row_no,certification_type,certification_no,company_name_raw,certification_subject_name,certification_start_date,certification_end_date
-      FROM certification_snapshot_occurrences WHERE run_id=?
-    EXCEPT
-    SELECT source_page_no,source_row_no,certification_type,certification_no,company_name,product_name,certification_start_date,certification_end_date
-      FROM certification_records WHERE run_id=?
-  )`).get(runId, runId) as { count: number }).count);
-  const visibleIdentical = Number((db.prepare(`SELECT COUNT(*) count FROM certification_snapshot_occurrences WHERE run_id=?
-    AND certification_type='우수조달공동상표' AND certification_no='2023001' AND company_name_raw='코머신'
-    AND certification_subject_name='무대장치' AND certification_start_date='2023-08-31' AND certification_end_date='2026-08-30'`).get(runId) as { count: number }).count);
-  const cases = {
-    industry: Number((db.prepare("SELECT COUNT(*) count FROM certification_snapshot_occurrences WHERE run_id=? AND certification_type='산업융합품목' AND certification_no='제2020-693호'").get(runId) as {count:number}).count),
-    net201411: Number((db.prepare("SELECT COUNT(*) count FROM certification_snapshot_occurrences WHERE run_id=? AND certification_type='NET' AND certification_no='20-1411'").get(runId) as {count:number}).count),
-    net53067: Number((db.prepare("SELECT COUNT(*) count FROM certification_snapshot_occurrences WHERE run_id=? AND certification_type='NET' AND certification_no='53-067' AND company_name_raw='(주)지디티'").get(runId) as {count:number}).count),
-    jointMark: Number((db.prepare("SELECT COUNT(*) count FROM certification_snapshot_occurrences WHERE run_id=? AND certification_type='우수조달공동상표' AND certification_no='2022009' AND company_name_raw='펌프로'").get(runId) as {count:number}).count),
-  };
-  const result = { source, occurrence, fieldDifferences, reverseFieldDifferences, visibleIdentical, cases };
-  if (source.count !== occurrence.count || source.distinct_count !== occurrence.distinct_count || source.min_no !== occurrence.min_no ||
-    source.max_no !== occurrence.max_no || fieldDifferences !== 0 || reverseFieldDifferences !== 0 || visibleIdentical !== 27 ||
-    cases.industry !== 82 || cases.net201411 !== 68 || cases.net53067 !== 10 || cases.jointMark !== 39) {
-    throw new Error(`Occurrence backfill integrity failed: ${JSON.stringify(result)}`);
   }
   return result;
 }

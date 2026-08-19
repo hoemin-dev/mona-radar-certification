@@ -17,6 +17,22 @@ interface CertificationRow {
   isUnlimited: boolean;
   statusClass: string;
   statusUnknown: boolean;
+  companyNameCorrected: boolean;
+  productNameCorrected: boolean;
+}
+
+interface CertificationCorrection {
+  fieldName: "company_name" | "product_name";
+  correctedValue: string;
+  sourceUrl: string;
+  reason: string;
+}
+
+interface CertificationDetail {
+  row: CertificationRow;
+  originalCompanyName: string;
+  originalProductName?: string;
+  corrections: CertificationCorrection[];
 }
 
 interface SearchResponse {
@@ -35,7 +51,7 @@ interface DbInfo {
   path: string;
   runId: number;
   runStatus: string;
-  occurrenceCount: number;
+  recordCount: number;
 }
 
 interface DbBackup {
@@ -71,6 +87,9 @@ let statusFilter = "";
 let searchData: SearchResponse = { rows: [], total: 0, page: 1, totalPages: 1, runId: 0 };
 let searchError = "";
 let searchTimer: number | undefined;
+let selectedDetail: CertificationDetail | undefined;
+let selectedCorrectionField: "company_name" | "product_name" = "company_name";
+let detailError = "";
 
 let collectorStatus: CollectorStatus = {
   processRunning: false,
@@ -101,6 +120,46 @@ const statusLabel = (row: CertificationRow) => {
 
 const endDateLabel = (row: CertificationRow) =>
   row.isUnlimited ? "무기한" : escapeHtml(row.certificationEndDate ?? "—");
+
+const correctedBadge = (corrected: boolean) =>
+  corrected ? '<small class="correction-badge">보정됨</small>' : "";
+
+const detailPanel = () => {
+  if (!selectedDetail) return "";
+  const { row } = selectedDetail;
+  const correction = selectedDetail.corrections.find((item) => item.fieldName === selectedCorrectionField);
+  const originalValue = selectedCorrectionField === "company_name"
+    ? selectedDetail.originalCompanyName
+    : selectedDetail.originalProductName ?? "";
+  return `<section class="detail-panel" aria-label="인증 상세">
+    <div class="detail-head">
+      <div><p class="eyebrow">CERTIFICATION DETAIL</p><h3>${escapeHtml(row.certificationType)} · ${escapeHtml(row.certificationNo ?? "—")}</h3></div>
+      <button type="button" data-action="close_detail" aria-label="상세 닫기">닫기</button>
+    </div>
+    <div class="detail-summary">
+      <div><small>업체명 ${correctedBadge(row.companyNameCorrected)}</small><strong>${escapeHtml(row.companyName)}</strong>${row.companyNameCorrected ? `<em>원본: ${escapeHtml(selectedDetail.originalCompanyName)}</em>` : ""}</div>
+      <div><small>인증대상명 ${correctedBadge(row.productNameCorrected)}</small><strong>${escapeHtml(row.certificationSubjectName ?? "—")}</strong>${row.productNameCorrected ? `<em>원본: ${escapeHtml(selectedDetail.originalProductName ?? "—")}</em>` : ""}</div>
+    </div>
+    <div class="correction-editor">
+      <h4>원본 데이터 보정</h4>
+      ${detailError ? `<p class="correction-error">${escapeHtml(detailError)}</p>` : ""}
+      <div class="correction-grid">
+        <label>보정 필드<select id="correction-field">
+          <option value="company_name" ${selectedCorrectionField === "company_name" ? "selected" : ""}>company_name</option>
+          <option value="product_name" ${selectedCorrectionField === "product_name" ? "selected" : ""}>product_name</option>
+        </select></label>
+        <label>원본값<input value="${escapeHtml(originalValue)}" readonly></label>
+        <label>보정값<input id="correction-value" value="${escapeHtml(correction?.correctedValue ?? "")}" autocomplete="off"></label>
+        <label>출처 URL<input id="correction-url" type="url" value="${escapeHtml(correction?.sourceUrl ?? "")}" autocomplete="off"></label>
+        <label class="correction-reason">보정 사유<textarea id="correction-reason" rows="2">${escapeHtml(correction?.reason ?? "")}</textarea></label>
+      </div>
+      <div class="correction-actions">
+        <button class="primary" type="button" data-action="save_correction">저장</button>
+        <button class="danger" type="button" data-action="delete_correction" ${correction ? "" : "disabled"}>보정 해제</button>
+      </div>
+    </div>
+  </section>`;
+};
 
 function setupWindowChrome() {
   if (!("__TAURI_INTERNALS__" in window)) return;
@@ -144,7 +203,7 @@ const nav = () => `
         )
         .join("")}
     </nav>
-    <footer>LOCAL SQLITE<br><span>snapshot occurrences</span></footer>
+    <footer>LOCAL SQLITE<br><span>certification records</span></footer>
   </aside>`;
 
 const placeholder = (name: string) => `
@@ -162,7 +221,7 @@ const dbBanner = () => {
   if (!dbInfo) return "";
   return `<div class="db-banner">
     <strong>Run #${dbInfo.runId}</strong> · ${escapeHtml(dbInfo.runStatus)} ·
-    ${dbInfo.occurrenceCount.toLocaleString()}건 ·
+    ${dbInfo.recordCount.toLocaleString()}건 ·
     <span class="muted">${escapeHtml(dbInfo.path)}</span>
   </div>`;
 };
@@ -189,9 +248,10 @@ const searchPage = () => `
     <header>
       <p class="eyebrow">CERTIFICATION SNAPSHOT</p>
       <h2>Search</h2>
-      <p>최근 정상 완료된 Production run의 <code>certification_snapshot_occurrences</code>를 조회합니다.</p>
+      <p>최근 정상 완료된 Production run의 <code>certification_records</code>를 조회합니다.</p>
     </header>
     ${dbBanner()}
+    ${detailPanel()}
     <div class="search-panel">
       <div class="search-grid">
         <label>업체명<input id="filter-company" value="${escapeHtml(companyName)}" autocomplete="off" placeholder="업체명 검색"></label>
@@ -236,15 +296,15 @@ const searchPage = () => `
               ${searchData.rows
                 .map((row) => {
                   const status = statusLabel(row);
-                  return `<div class="results-row">
+                  return `<button type="button" class="results-row" data-record-id="${row.id}">
                     <span>${escapeHtml(row.certificationType)}</span>
                     <span>${escapeHtml(row.certificationNo ?? "—")}</span>
-                    <span>${escapeHtml(row.companyName)}</span>
-                    <span>${escapeHtml(row.certificationSubjectName ?? "—")}</span>
+                    <span>${escapeHtml(row.companyName)}${correctedBadge(row.companyNameCorrected)}</span>
+                    <span>${escapeHtml(row.certificationSubjectName ?? "—")}${correctedBadge(row.productNameCorrected)}</span>
                     <span>${escapeHtml(row.certificationStartDate ?? "—")}</span>
                     <span>${endDateLabel(row)}</span>
                     <span><span class="status-pill ${status.className}">${status.text}</span></span>
-                  </div>`;
+                  </button>`;
                 })
                 .join("")}
             </div>${pagination()}`
@@ -377,6 +437,17 @@ async function loadSearch(page = 1) {
   render();
 }
 
+async function loadDetail(id: number) {
+  detailError = "";
+  try {
+    selectedDetail = (await invoke<CertificationDetail | null>("certification_detail", { id })) ?? undefined;
+  } catch (error) {
+    selectedDetail = undefined;
+    searchError = String(error);
+  }
+  render();
+}
+
 async function refreshCollectorStatus() {
   try {
     collectorStatus = await invoke<CollectorStatus>("collector_status");
@@ -449,6 +520,54 @@ function bind() {
       if (!Number.isFinite(page)) return;
       void loadSearch(page);
     });
+  });
+
+  document.querySelectorAll<HTMLElement>("[data-record-id]").forEach((element) => {
+    element.addEventListener("click", () => void loadDetail(Number(element.dataset.recordId)));
+  });
+  document.querySelector("[data-action=close_detail]")?.addEventListener("click", () => {
+    selectedDetail = undefined;
+    detailError = "";
+    render();
+  });
+  document.querySelector("#correction-field")?.addEventListener("change", (event) => {
+    selectedCorrectionField = (event.target as HTMLSelectElement).value as "company_name" | "product_name";
+    detailError = "";
+    render();
+  });
+  document.querySelector("[data-action=save_correction]")?.addEventListener("click", async () => {
+    if (!selectedDetail) return;
+    const recordId = selectedDetail.row.id;
+    try {
+      await invoke("save_certification_correction", {
+        input: {
+          recordId,
+          fieldName: selectedCorrectionField,
+          correctedValue: document.querySelector<HTMLInputElement>("#correction-value")?.value ?? "",
+          sourceUrl: document.querySelector<HTMLInputElement>("#correction-url")?.value ?? "",
+          reason: document.querySelector<HTMLTextAreaElement>("#correction-reason")?.value ?? "",
+        },
+      });
+      await loadSearch(searchData.page);
+      await loadDetail(recordId);
+    } catch (error) {
+      detailError = String(error);
+      render();
+    }
+  });
+  document.querySelector("[data-action=delete_correction]")?.addEventListener("click", async () => {
+    if (!selectedDetail) return;
+    const recordId = selectedDetail.row.id;
+    try {
+      await invoke("delete_certification_correction", {
+        input: { recordId, fieldName: selectedCorrectionField },
+      });
+      await loadSearch(searchData.page);
+      await loadDetail(recordId);
+    } catch (error) {
+      detailError = String(error);
+      render();
+    }
   });
 
   document.querySelector("[data-action=start_collector]")?.addEventListener("click", async () => {
