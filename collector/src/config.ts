@@ -10,6 +10,7 @@ const pageUnitArg = process.argv.find((arg) => arg.startsWith("--page-unit="))?.
 const pageUnit = Number(pageUnitArg ?? "100");
 if (![15, 100].includes(pageUnit)) throw new Error("page-unit must be 15 or 100");
 const production = process.argv.includes("--production");
+const incremental = process.argv.includes("--latest");
 
 export const config = {
   sourceUrl: "https://www.smpp.go.kr/prd/prdinfo/tdprd/SelectTdPrdListVw.do",
@@ -17,8 +18,9 @@ export const config = {
   navigationTimeoutMs: 90_000,
   sourcePageNo: 1,
   pageUnit,
-  sourceMode: production ? "production_v2" : "smpp_tdprd_occurrence_v2",
+  sourceMode: incremental ? "incremental_v2" : production ? "production_v2" : "smpp_tdprd_occurrence_v2",
   collectorSchemaVersion: "v2",
   production,
+  incremental,
   userAgent: "MONA-RADAR-Certification-MVP/0.1 (+one-page public-data collector)",
 } as const;

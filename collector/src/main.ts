@@ -2,7 +2,7 @@ import { config } from "./config.ts";
 import { openBrowser } from "./browser.ts";
 import { checkpointPage, moveToPageViaVisibleBlocks } from "./paginator.ts";
 import { configurePageUnit, enableExpiredInclusion, loadSearchPage, readSearchTotal, submitSearchAndAssert } from "./search-state.ts";
-import { acquireRun, commitPage, completeProductionRun, completeRun, countRunRecords, failRun, incrementRetry, interruptRun, markPageFailed, openDatabase, productionIntegrity, saveFailures, setInitialSearchTotal, startPage } from "./sink.ts";
+import { acquireIncrementalRun, acquireRun, assertIncrementalOverlap, commitPage, completeIncrementalRun, completeProductionRun, completeRun, countRunRecords, failRun, incrementRetry, incrementalBaselineMax, interruptRun, markPageFailed, openDatabase, productionIntegrity, saveFailures, setInitialSearchTotal, startPage, updateSearchTotal } from "./sink.ts";
 
 function numericArg(name: string, fallback?: number): number | undefined {
   const raw = process.argv.find((arg) => arg.startsWith(`--${name}=`))?.split("=",2)[1];
@@ -15,7 +15,8 @@ function numericArg(name: string, fallback?: number): number | undefined {
 const requestedStop = numericArg("stop-after-page", config.production ? undefined : 3);
 const failAfterPage = numericArg("fail-after-page");
 const db = openDatabase();
-const acquired = acquireRun(db, process.argv.includes("--new-run"));
+const forceNew = process.argv.includes("--new-run");
+const acquired = config.incremental ? acquireIncrementalRun(db, forceNew) : acquireRun(db, forceNew);
 const run = acquired.run;
 let session: Awaited<ReturnType<typeof openBrowser>> | undefined;
 let activePage: number | null = null;
@@ -35,7 +36,10 @@ try {
   await configurePageUnit(session.page);
   await submitSearchAndAssert(session.page);
   const searchTotal = await readSearchTotal(session.page);
-  if (run.searchTotal !== null && searchTotal !== run.searchTotal) throw new Error(`Search total changed: stored_total=${run.searchTotal} current_total=${searchTotal}`);
+  if (run.searchTotal !== null && searchTotal !== run.searchTotal) {
+    if (!config.incremental || searchTotal < run.searchTotal) throw new Error(`Search total changed: stored_total=${run.searchTotal} current_total=${searchTotal}`);
+    updateSearchTotal(db,run.id,searchTotal);
+  }
   if (run.searchTotal === null) setInitialSearchTotal(db,run.id,searchTotal);
   const totalPages = Math.ceil(searchTotal / config.pageUnit);
   const stopAfterPage = requestedStop ?? totalPages;
@@ -68,6 +72,12 @@ try {
       saveFailures(db,run.id,checkpoint.failures);
       throw new Error(`Row parsing failed on page ${pageNo}: ${checkpoint.failures.length}`);
     }
+    if (config.incremental) {
+      const baselineMax = incrementalBaselineMax(db);
+      assertIncrementalOverlap(db,checkpoint.records,baselineMax);
+      checkpoint.records = checkpoint.records.filter((record) => record.sourceRowNo > baselineMax);
+      checkpoint.rowsParsed = checkpoint.records.length;
+    }
     const {inserted,elapsedMs}=commitPage(db,run.id,checkpoint,failAfterPage===pageNo,pageStartedAt);
     console.log(`page_complete page=${pageNo}/${totalPages} rows=${checkpoint.rowsFound} parsed=${checkpoint.rowsParsed} inserted=${inserted} elapsed_ms=${elapsedMs}`);
     console.log("checkpoint_saved");
@@ -75,7 +85,11 @@ try {
     if (pageNo%25===0 || pageNo===stopAfterPage) console.log(`progress pages=${pageNo}/${totalPages} stored_rows=${countRunRecords(db,run.id)}`);
   }
 
-  if (config.production && stopAfterPage===totalPages) {
+  if (config.incremental && stopAfterPage===totalPages) {
+    completeIncrementalRun(db,run.id,searchTotal);
+    console.log(`collection_elapsed_ms=${Date.now()-runStartedAt}`);
+    console.log("collection_complete");
+  } else if (config.production && stopAfterPage===totalPages) {
     const integrity=productionIntegrity(db,run.id,totalPages,searchTotal);
     completeProductionRun(db,run.id);
     console.log(`integrity=${JSON.stringify(integrity)}`);

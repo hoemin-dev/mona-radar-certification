@@ -54,11 +54,6 @@ interface DbInfo {
   recordCount: number;
 }
 
-interface DbBackup {
-  name: string;
-  path: string;
-}
-
 interface CollectorStatus {
   processRunning: boolean;
   runId?: number;
@@ -99,8 +94,6 @@ let collectorStatus: CollectorStatus = {
   resumed: false,
 };
 let collectorLogs: string[] = [];
-let dbBackups: DbBackup[] = [];
-let selectedBackupName = "";
 let statusPollTimer: number | undefined;
 
 const escapeHtml = (value: unknown) =>
@@ -319,7 +312,7 @@ const collectorPage = () => `
       <h2>Collector</h2>
       <p>검증된 Collector v2를 앱에서 실행하고 상태를 확인합니다. 기존 checkpoint/resume 구조를 그대로 사용합니다.</p>
     </header>
-    <div class="guide"><b>안내</b><span>Start = 새 Production run</span><span>Pause/Resume = checkpoint 유지</span><span>Stop = 현재 run 종료</span></div>
+    <div class="guide"><b>안내</b><span>전체 수집 = 새 Production run</span><span>최신 자료 수집 = 마지막 완료 이후 자료</span><span>Pause/Resume = checkpoint 유지</span></div>
     <div class="status-grid">
       <article><span>프로세스</span><strong class="${collectorStatus.processRunning ? "good" : ""}">${collectorStatus.processRunning ? "실행 중" : "중지됨"}</strong><small>Node collector subprocess</small></article>
       <article><span>Run 상태</span><strong>${escapeHtml(collectorStatus.runStatus ?? "—")}</strong><small>Run #${escapeHtml(collectorStatus.runId ?? "—")}</small></article>
@@ -328,19 +321,11 @@ const collectorPage = () => `
     </div>
     <div class="workspace">
       <div class="actions">
-        <button class="primary" data-action="start_collector" type="button" ${collectorStatus.processRunning ? "disabled" : ""}>Start</button>
+        <button class="primary" data-action="start_collector" type="button" ${collectorStatus.processRunning || (collectorStatus.runStatus === "interrupted" && collectorStatus.errorSummary !== "stopped_by_user") ? "disabled" : ""}>전체 수집</button>
+        <button class="primary" data-action="start_latest_collector" type="button" ${collectorStatus.processRunning || (collectorStatus.runStatus === "interrupted" && collectorStatus.errorSummary !== "stopped_by_user") ? "disabled" : ""}>최신 자료 수집</button>
         <button data-action="pause_collector" type="button" ${collectorStatus.processRunning ? "" : "disabled"}>Pause</button>
-        ${collectorStatus.runStatus === 'interrupted' ? `<button data-action="resume_collector" type="button" ${collectorStatus.processRunning ? "disabled" : ""}>Resume</button>` : ""}
-        <button data-action="stop_collector" type="button" ${collectorStatus.processRunning ? "" : "disabled"}>Stop</button>
-        <button data-action="refresh_collector" type="button">DB 다시 읽기</button>
-      </div>
-      <div class="actions" style="margin-top:12px">
-        <button data-action="backup_db" type="button">DB 백업</button>
-        <select id="backup-select" aria-label="백업 목록" style="min-width:220px">
-          <option value="">백업 선택</option>
-          ${dbBackups.map((backup) => `<option value="${escapeHtml(backup.name)}" ${selectedBackupName === backup.name ? "selected" : ""}>${escapeHtml(backup.name)}</option>`).join("")}
-        </select>
-        <button data-action="restore_db" type="button" ${dbBackups.length ? "" : "disabled"}>복원</button>
+        <button data-action="resume_collector" type="button" ${!collectorStatus.processRunning && collectorStatus.runStatus === "interrupted" && collectorStatus.errorSummary !== "stopped_by_user" ? "" : "disabled"}>Resume</button>
+        <button data-action="stop_collector" type="button" ${collectorStatus.processRunning || (collectorStatus.runStatus === "interrupted" && collectorStatus.errorSummary !== "stopped_by_user") ? "" : "disabled"}>Stop</button>
       </div>
       ${collectorStatus.errorSummary ? `<p class="error" style="margin-top:16px">${escapeHtml(collectorStatus.errorSummary)}</p>` : ""}
       ${collectorStatus.sourceMode ? `<p class="muted" style="margin-top:8px">source_mode: ${escapeHtml(collectorStatus.sourceMode)}</p>` : ""}
@@ -357,7 +342,7 @@ const collectorPage = () => `
               .reverse()
               .map((line) => `<div class="event-row">${escapeHtml(line)}</div>`)
               .join("")
-          : '<div class="empty">Start를 눌러 수집을 시작하세요.</div>'
+          : '<div class="empty">수집 방식을 선택해 시작하세요.</div>'
       }
     </div>
   </section>`;
@@ -381,21 +366,6 @@ function readSearchFiltersFromDom() {
   certificationType = document.querySelector<HTMLSelectElement>("#filter-cert-type")?.value ?? certificationType;
   certificationSubjectName = document.querySelector<HTMLInputElement>("#filter-subject")?.value ?? certificationSubjectName;
   statusFilter = document.querySelector<HTMLSelectElement>("#filter-status")?.value ?? statusFilter;
-}
-
-function readCollectorOptionsFromDom() {
-  selectedBackupName = document.querySelector<HTMLSelectElement>("#backup-select")?.value ?? selectedBackupName;
-}
-
-async function loadDbBackups() {
-  try {
-    dbBackups = await invoke<DbBackup[]>("database_backups");
-    if (selectedBackupName && !dbBackups.some((backup) => backup.name === selectedBackupName)) {
-      selectedBackupName = "";
-    }
-  } catch {
-    dbBackups = [];
-  }
 }
 
 async function loadDbInfo() {
@@ -576,15 +546,30 @@ function bind() {
         args: {
           newRun: true,
           production: true,
+          latest: false,
           pageUnit: 100,
           stopAfterPage: null,
         },
       });
-      collectorLogs.push("[app] Start: new Production run");
+      collectorLogs.push("[app] 전체 수집: new Production run");
       await refreshCollectorStatus();
       render();
     } catch (error) {
-      collectorLogs.push(`[app] Start failed: ${String(error)}`);
+      collectorLogs.push(`[app] 전체 수집 failed: ${String(error)}`);
+      render();
+    }
+  });
+
+  document.querySelector("[data-action=start_latest_collector]")?.addEventListener("click", async () => {
+    try {
+      await invoke("start_collector", {
+        args: { newRun: true, production: true, latest: true, pageUnit: 100, stopAfterPage: null },
+      });
+      collectorLogs.push("[app] 최신 자료 수집: continue after Production checkpoint");
+      await refreshCollectorStatus();
+      render();
+    } catch (error) {
+      collectorLogs.push(`[app] 최신 자료 수집 failed: ${String(error)}`);
       render();
     }
   });
@@ -607,6 +592,7 @@ function bind() {
         args: {
           newRun: false,
           production: true,
+          latest: collectorStatus.sourceMode === "incremental_v2",
           pageUnit: 100,
           stopAfterPage: null,
         },
@@ -632,48 +618,11 @@ function bind() {
     }
   });
 
-  document.querySelector("[data-action=backup_db]")?.addEventListener("click", async () => {
-    try {
-      const result = await invoke<DbBackup>("backup_database");
-      collectorLogs.push(`[app] DB backup created: ${result.name}`);
-      await loadDbBackups();
-      await loadDbInfo();
-      render();
-    } catch (error) {
-      collectorLogs.push(`[app] Backup failed: ${String(error)}`);
-      render();
-    }
-  });
-
-  document.querySelector("[data-action=restore_db]")?.addEventListener("click", async () => {
-    readCollectorOptionsFromDom();
-    if (!selectedBackupName) return;
-    try {
-      await invoke("restore_database", { backupName: selectedBackupName });
-      collectorLogs.push(`[app] DB restored: ${selectedBackupName}`);
-      await loadDbBackups();
-      await loadDbInfo();
-      await loadFilterOptions();
-      await loadSearch(1);
-      render();
-    } catch (error) {
-      collectorLogs.push(`[app] Restore failed: ${String(error)}`);
-      render();
-    }
-  });
-
-  document.querySelector("[data-action=refresh_collector]")?.addEventListener("click", async () => {
-    await loadDbInfo();
-    await loadFilterOptions();
-    await loadSearch(1);
-    await refreshCollectorStatus();
-  });
   document.querySelector("[data-action=copy_logs]")?.addEventListener("click", () => void copyLogs());
 }
 
 async function boot() {
   setupWindowChrome();
-  await loadDbBackups();
   await loadDbInfo();
   await loadFilterOptions();
   render();

@@ -79,37 +79,6 @@ fn db_path() -> Result<PathBuf, String> {
     Ok(path)
 }
 
-fn backup_dir() -> PathBuf {
-    project_root().join("collector/data/backups")
-}
-
-fn now_iso() -> String {
-    let secs = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .unwrap_or_default()
-        .as_millis();
-    let timestamp = secs / 1000;
-    let nanos = (secs % 1000) as u32;
-    format!("{timestamp:013}.{nanos:03}")
-}
-
-fn backup_db_file() -> Result<PathBuf, String> {
-    let src = db_path()?;
-    let dir = backup_dir();
-    fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
-    let ts = now_iso();
-    let dst = dir.join(format!("mona-radar-certification-{ts}.sqlite"));
-    fs::copy(&src, &dst).map_err(|e| e.to_string())?;
-    for suffix in ["-wal", "-shm"] {
-        let wal_src = src.with_extension(format!("sqlite{suffix}"));
-        let wal_dst = dst.with_extension(format!("sqlite{suffix}"));
-        if wal_src.is_file() {
-            let _ = fs::copy(&wal_src, &wal_dst);
-        }
-    }
-    Ok(dst)
-}
-
 fn open_connection() -> Result<Connection, String> {
     let conn = Connection::open(db_path()?).map_err(|e| e.to_string())?;
     conn.pragma_update(None, "journal_mode", "WAL")
@@ -713,6 +682,7 @@ fn collector_status(state: State<CollectorProcess>) -> Result<CollectorStatus, S
 struct StartCollectorArgs {
     new_run: Option<bool>,
     production: Option<bool>,
+    latest: Option<bool>,
     page_unit: Option<i64>,
     stop_after_page: Option<i64>,
 }
@@ -819,6 +789,9 @@ fn start_collector(
     if args.production.unwrap_or(false) {
         command.arg("--production");
     }
+    if args.latest.unwrap_or(false) {
+        command.arg("--latest");
+    }
     if let Some(stop_after) = args.stop_after_page {
         command.arg(format!("--stop-after-page={stop_after}"));
     }
@@ -868,67 +841,6 @@ fn stop_collector(state: State<CollectorProcess>) -> Result<(), String> {
     Ok(())
 }
 
-#[derive(Serialize)]
-#[serde(rename_all = "camelCase")]
-struct DbBackup {
-    name: String,
-    path: String,
-}
-
-#[tauri::command]
-fn database_backups() -> Result<Vec<DbBackup>, String> {
-    let dir = backup_dir();
-    if !dir.is_dir() {
-        return Ok(Vec::new());
-    }
-    let mut entries = fs::read_dir(&dir)
-        .map_err(|e| e.to_string())?
-        .filter_map(Result::ok)
-        .filter_map(|entry| {
-            let path = entry.path();
-            let name = path.file_name()?.to_string_lossy().to_string();
-            if path.is_file() && name.ends_with(".sqlite") {
-                Some(DbBackup {
-                    name: name.clone(),
-                    path: path.display().to_string(),
-                })
-            } else {
-                None
-            }
-        })
-        .collect::<Vec<_>>();
-    entries.sort_by(|a, b| b.name.cmp(&a.name));
-    Ok(entries)
-}
-
-#[tauri::command]
-fn backup_database() -> Result<DbBackup, String> {
-    let path = backup_db_file()?;
-    Ok(DbBackup {
-        name: path.file_name().unwrap().to_string_lossy().to_string(),
-        path: path.display().to_string(),
-    })
-}
-
-#[tauri::command]
-fn restore_database(backup_name: String) -> Result<String, String> {
-    let dir = backup_dir();
-    let src = dir.join(&backup_name);
-    if !src.is_file() {
-        return Err(format!("Backup file not found: {}", backup_name));
-    }
-    let _ = backup_db_file()?;
-    let target = db_path()?;
-    fs::copy(&src, &target).map_err(|e| e.to_string())?;
-    for suffix in ["-wal", "-shm"] {
-        let backup_src = src.with_extension(format!("sqlite{suffix}"));
-        let target_src = target.with_extension(format!("sqlite{suffix}"));
-        if backup_src.is_file() {
-            let _ = fs::copy(&backup_src, &target_src);
-        }
-    }
-    Ok(target.display().to_string())
-}
 
 #[tauri::command]
 fn pause_collector(state: State<CollectorProcess>) -> Result<(), String> {
@@ -1008,9 +920,6 @@ pub fn run() {
             start_collector,
             pause_collector,
             stop_collector,
-            database_backups,
-            backup_database,
-            restore_database,
             collector_process_running
         ])
         .build(tauri::generate_context!())

@@ -234,8 +234,60 @@ export function acquireRun(db: DatabaseSync, forceNew: boolean): { run: Collecti
   return { run: { id: Number(result.lastInsertRowid), status: "running", searchTotal: null, lastCompletedPage: 0 }, resumed: false };
 }
 
+export function acquireIncrementalRun(db: DatabaseSync, forceNew: boolean): { run: CollectionRun; resumed: boolean } {
+  if (!forceNew) return acquireRun(db, false);
+  const baseline = db.prepare(`SELECT r.page_unit, MAX(c.source_row_no) AS max_no
+    FROM collection_runs r JOIN certification_records c ON c.run_id=r.id
+    WHERE r.status='completed' AND r.source_mode LIKE 'production%'
+    GROUP BY r.id ORDER BY r.id DESC LIMIT 1`).get() as { page_unit: number; max_no: number } | undefined;
+  if (!baseline) throw new Error("Latest collection requires a completed Production run");
+  if (Number(baseline.page_unit) !== config.pageUnit) {
+    throw new Error(`Production pageUnit mismatch: expected ${config.pageUnit}, got ${baseline.page_unit}`);
+  }
+  const timestamp = now();
+  const lastCompletedPage = Math.floor(Number(baseline.max_no) / config.pageUnit);
+  const result = db.prepare(`INSERT INTO collection_runs
+    (source_url,source_mode,page_unit,search_over_date_yn,started_at,updated_at,status,last_completed_page,collector_schema_version)
+    VALUES (?,?,?,'Y',?,?,'running',?,?)`).run(
+      config.sourceUrl,config.sourceMode,config.pageUnit,timestamp,timestamp,lastCompletedPage,config.collectorSchemaVersion,
+    );
+  return { run: { id: Number(result.lastInsertRowid), status: "running", searchTotal: null, lastCompletedPage }, resumed: false };
+}
+
 export function setInitialSearchTotal(db: DatabaseSync, runId: number, total: number): void {
   db.prepare("UPDATE collection_runs SET search_total=?, updated_at=? WHERE id=? AND search_total IS NULL").run(total, now(), runId);
+}
+
+export function updateSearchTotal(db: DatabaseSync, runId: number, total: number): void {
+  db.prepare("UPDATE collection_runs SET search_total=?, updated_at=? WHERE id=?").run(total, now(), runId);
+}
+
+export function incrementalBaselineMax(db: DatabaseSync): number {
+  const row = db.prepare(`SELECT MAX(c.source_row_no) AS max_no
+    FROM certification_records c WHERE c.run_id=(SELECT id FROM collection_runs
+      WHERE status='completed' AND source_mode LIKE 'production%' ORDER BY id DESC LIMIT 1)`)
+    .get() as { max_no: number | null };
+  if (row.max_no === null) throw new Error("Completed Production checkpoint is empty");
+  return Number(row.max_no);
+}
+
+export function assertIncrementalOverlap(db: DatabaseSync, records: CertificationRecord[], baselineMax: number): void {
+  const baselineId = (db.prepare(`SELECT id FROM collection_runs
+    WHERE status='completed' AND source_mode LIKE 'production%' ORDER BY id DESC LIMIT 1`)
+    .get() as { id: number } | undefined)?.id;
+  if (!baselineId) throw new Error("Completed Production checkpoint is missing");
+  const find = db.prepare(`SELECT certification_type,certification_no,product_name,company_name,
+    certification_start_date,certification_end_date FROM certification_records
+    WHERE run_id=? AND source_row_no=?`);
+  for (const record of records.filter((item) => item.sourceRowNo <= baselineMax)) {
+    const existing = find.get(baselineId,record.sourceRowNo) as Record<string, string | null> | undefined;
+    if (!existing || existing.certification_type !== record.certificationType ||
+        existing.certification_no !== record.certificationNo || existing.product_name !== record.productName ||
+        existing.company_name !== record.companyName || existing.certification_start_date !== record.certificationStartDate ||
+        existing.certification_end_date !== record.certificationEndDate) {
+      throw new Error(`SMPP ordering checkpoint mismatch at No ${record.sourceRowNo}`);
+    }
+  }
 }
 
 export function startPage(db: DatabaseSync, runId: number, pageNo: number): void {
@@ -341,6 +393,46 @@ export function completeProductionRun(db: DatabaseSync, runId: number): void {
     db.prepare("UPDATE collection_runs SET status='completed',updated_at=?,completed_at=?,error_summary=NULL WHERE id=?")
       .run(timestamp, timestamp, runId);
     db.prepare("DELETE FROM certification_records WHERE run_id<>?").run(runId);
+    db.exec("COMMIT");
+  } catch (error) {
+    db.exec("ROLLBACK");
+    throw error;
+  }
+}
+
+export function completeIncrementalRun(db: DatabaseSync, runId: number, searchTotal: number): void {
+  const baseline = db.prepare(`SELECT id FROM collection_runs
+    WHERE status='completed' AND source_mode LIKE 'production%' ORDER BY id DESC LIMIT 1`)
+    .get() as { id: number } | undefined;
+  if (!baseline) throw new Error("Completed Production run disappeared during latest collection");
+  const projected = db.prepare(`SELECT COUNT(DISTINCT source_row_no) AS count,
+      MIN(source_row_no) AS min_no,MAX(source_row_no) AS max_no
+    FROM certification_records WHERE run_id IN (?,?)`).get(baseline.id,runId) as Record<string, number>;
+  if (Number(projected.count) !== searchTotal || Number(projected.min_no) !== 1 || Number(projected.max_no) !== searchTotal) {
+    throw new Error(`Incremental integrity failed: ${JSON.stringify(projected)}`);
+  }
+
+  const timestamp = now();
+  const newRows = countRunRecords(db,runId);
+  db.exec("BEGIN");
+  try {
+    db.prepare(`INSERT OR IGNORE INTO certification_records (
+      run_id,source_row_no,certification_type,certification_no,product_name,company_name,
+      representative_name,address_raw,certification_start_date,certification_end_date,
+      is_currently_valid,historical_certification,is_unlimited_end_date,image_url,source_page_no,
+      business_registration_no,company_identifier,detailed_item_name,detailed_item_code,
+      source_seq_no,detail_url,raw_json,collected_at)
+      SELECT ?,source_row_no,certification_type,certification_no,product_name,company_name,
+      representative_name,address_raw,certification_start_date,certification_end_date,
+      is_currently_valid,historical_certification,is_unlimited_end_date,image_url,source_page_no,
+      business_registration_no,company_identifier,detailed_item_name,detailed_item_code,
+      source_seq_no,detail_url,raw_json,collected_at FROM certification_records WHERE run_id=?`)
+      .run(baseline.id,runId);
+    db.prepare("UPDATE collection_runs SET search_total=?,updated_at=?,rows_inserted=rows_inserted+? WHERE id=?")
+      .run(searchTotal,timestamp,newRows,baseline.id);
+    db.prepare("DELETE FROM certification_records WHERE run_id=?").run(runId);
+    db.prepare("UPDATE collection_runs SET status='completed',updated_at=?,completed_at=?,error_summary=NULL WHERE id=?")
+      .run(timestamp,timestamp,runId);
     db.exec("COMMIT");
   } catch (error) {
     db.exec("ROLLBACK");
