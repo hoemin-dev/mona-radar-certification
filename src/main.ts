@@ -82,6 +82,7 @@ let statusFilter = "";
 let searchData: SearchResponse = { rows: [], total: 0, page: 1, totalPages: 1, runId: 0 };
 let searchError = "";
 let searchTimer: number | undefined;
+let searchRequestId = 0;
 let selectedDetail: CertificationDetail | undefined;
 let selectedCorrectionField: "company_name" | "product_name" = "company_name";
 let detailError = "";
@@ -236,6 +237,32 @@ const pagination = () => {
   </nav>`;
 };
 
+const searchResults = () =>
+  searchError
+    ? `<div class="db-banner error">${escapeHtml(searchError)}</div>`
+    : searchData.rows.length
+      ? `<div class="results-table">
+          <div class="results-head">
+            <span>인증유형</span><span>인증번호</span><span>업체명</span><span>인증대상명</span>
+            <span>시작일</span><span>종료일</span><span>상태</span>
+          </div>
+          ${searchData.rows
+            .map((row) => {
+              const status = statusLabel(row);
+              return `<button type="button" class="results-row" data-record-id="${row.id}">
+                <span>${escapeHtml(row.certificationType)}</span>
+                <span>${escapeHtml(row.certificationNo ?? "—")}</span>
+                <span>${escapeHtml(row.companyName)}${correctedBadge(row.companyNameCorrected)}</span>
+                <span>${escapeHtml(row.certificationSubjectName ?? "—")}${correctedBadge(row.productNameCorrected)}</span>
+                <span>${escapeHtml(row.certificationStartDate ?? "—")}</span>
+                <span>${endDateLabel(row)}</span>
+                <span><span class="status-pill ${status.className}">${status.text}</span></span>
+              </button>`;
+            })
+            .join("")}
+        </div>${pagination()}`
+      : `<div class="empty-card"><p>${dbError ? "DB를 연결한 뒤 검색하세요." : "검색 결과가 없습니다."}</p></div>`;
+
 const searchPage = () => `
   <section class="page">
     <header>
@@ -277,32 +304,7 @@ const searchPage = () => `
         <span class="search-meta">${searchData.total.toLocaleString()}건 · Run #${searchData.runId || "—"}</span>
       </div>
     </div>
-    ${
-      searchError
-        ? `<div class="db-banner error">${escapeHtml(searchError)}</div>`
-        : searchData.rows.length
-          ? `<div class="results-table">
-              <div class="results-head">
-                <span>인증유형</span><span>인증번호</span><span>업체명</span><span>인증대상명</span>
-                <span>시작일</span><span>종료일</span><span>상태</span>
-              </div>
-              ${searchData.rows
-                .map((row) => {
-                  const status = statusLabel(row);
-                  return `<button type="button" class="results-row" data-record-id="${row.id}">
-                    <span>${escapeHtml(row.certificationType)}</span>
-                    <span>${escapeHtml(row.certificationNo ?? "—")}</span>
-                    <span>${escapeHtml(row.companyName)}${correctedBadge(row.companyNameCorrected)}</span>
-                    <span>${escapeHtml(row.certificationSubjectName ?? "—")}${correctedBadge(row.productNameCorrected)}</span>
-                    <span>${escapeHtml(row.certificationStartDate ?? "—")}</span>
-                    <span>${endDateLabel(row)}</span>
-                    <span><span class="status-pill ${status.className}">${status.text}</span></span>
-                  </button>`;
-                })
-                .join("")}
-            </div>${pagination()}`
-          : `<div class="empty-card"><p>${dbError ? "DB를 연결한 뒤 검색하세요." : "검색 결과가 없습니다."}</p></div>`
-    }
+    <div id="search-results">${searchResults()}</div>
   </section>`;
 
 const collectorPage = () => `
@@ -350,6 +352,12 @@ const collectorPage = () => `
 const shell = (body: string) => `${nav()}<main>${body}</main>`;
 
 function render() {
+  const activeElement = document.activeElement as HTMLInputElement | HTMLSelectElement | null;
+  const activeId = activeElement?.id;
+  const selection =
+    activeElement instanceof HTMLInputElement
+      ? { start: activeElement.selectionStart, end: activeElement.selectionEnd }
+      : undefined;
   const body =
     view === "search"
       ? searchPage()
@@ -358,6 +366,14 @@ function render() {
         : placeholder(view === "dash" ? "Dashboard" : "Analysis");
   app.innerHTML = shell(body);
   bind();
+
+  if (activeId) {
+    const replacement = document.getElementById(activeId) as HTMLInputElement | HTMLSelectElement | null;
+    replacement?.focus({ preventScroll: true });
+    if (replacement instanceof HTMLInputElement && selection && selection.start !== null && selection.end !== null) {
+      replacement.setSelectionRange(selection.start, selection.end);
+    }
+  }
 }
 
 function readSearchFiltersFromDom() {
@@ -388,9 +404,10 @@ async function loadFilterOptions() {
 
 async function loadSearch(page = 1) {
   readSearchFiltersFromDom();
+  const requestId = ++searchRequestId;
   searchError = "";
   try {
-    searchData = await invoke<SearchResponse>("search_certifications", {
+    const result = await invoke<SearchResponse>("search_certifications", {
       filters: {
         companyName: companyName || null,
         certificationNo: certificationNo || null,
@@ -400,11 +417,18 @@ async function loadSearch(page = 1) {
         page,
       },
     });
+    if (requestId !== searchRequestId) return;
+    searchData = result;
   } catch (error) {
+    if (requestId !== searchRequestId) return;
     searchError = String(error);
     searchData = { rows: [], total: 0, page: 1, totalPages: 1, runId: 0 };
   }
-  render();
+  if (view === "search" && document.querySelector("#search-results")) {
+    updateSearchResults();
+  } else {
+    render();
+  }
 }
 
 async function loadDetail(id: number) {
@@ -453,8 +477,33 @@ async function copyLogs() {
 }
 
 function scheduleSearch() {
+  readSearchFiltersFromDom();
+  searchRequestId += 1;
   window.clearTimeout(searchTimer);
-  searchTimer = window.setTimeout(() => void loadSearch(1), 300);
+  searchTimer = window.setTimeout(() => void loadSearch(1), 250);
+}
+
+function bindSearchResults() {
+  document.querySelectorAll("[data-page]").forEach((element) => {
+    element.addEventListener("click", () => {
+      const page = Number((element as HTMLElement).dataset.page);
+      if (!Number.isFinite(page)) return;
+      void loadSearch(page);
+    });
+  });
+
+  document.querySelectorAll<HTMLElement>("[data-record-id]").forEach((element) => {
+    element.addEventListener("click", () => void loadDetail(Number(element.dataset.recordId)));
+  });
+}
+
+function updateSearchResults() {
+  const results = document.querySelector<HTMLElement>("#search-results");
+  if (!results) return;
+  results.innerHTML = searchResults();
+  const meta = document.querySelector<HTMLElement>(".search-meta");
+  if (meta) meta.textContent = `${searchData.total.toLocaleString()}건 · Run #${searchData.runId || "—"}`;
+  bindSearchResults();
 }
 
 function bind() {
@@ -478,23 +527,19 @@ function bind() {
   });
 
   ["#filter-company", "#filter-cert-no", "#filter-subject"].forEach((selector) => {
-    document.querySelector(selector)?.addEventListener("input", scheduleSearch);
+    const input = document.querySelector<HTMLInputElement>(selector);
+    input?.addEventListener("input", scheduleSearch);
+    input?.addEventListener("compositionstart", () => {
+      searchRequestId += 1;
+      window.clearTimeout(searchTimer);
+    });
+    input?.addEventListener("compositionend", scheduleSearch);
   });
   ["#filter-cert-type", "#filter-status"].forEach((selector) => {
     document.querySelector(selector)?.addEventListener("change", () => void loadSearch(1));
   });
 
-  document.querySelectorAll("[data-page]").forEach((element) => {
-    element.addEventListener("click", () => {
-      const page = Number((element as HTMLElement).dataset.page);
-      if (!Number.isFinite(page)) return;
-      void loadSearch(page);
-    });
-  });
-
-  document.querySelectorAll<HTMLElement>("[data-record-id]").forEach((element) => {
-    element.addEventListener("click", () => void loadDetail(Number(element.dataset.recordId)));
-  });
+  bindSearchResults();
   document.querySelector("[data-action=close_detail]")?.addEventListener("click", () => {
     selectedDetail = undefined;
     detailError = "";
